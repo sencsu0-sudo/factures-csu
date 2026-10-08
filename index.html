@@ -898,13 +898,24 @@ function _ouvrirCameraCNI(){
   var cadre=document.createElement("div");
   cadre.style.cssText="position:absolute;left:4%;right:4%;top:50%;transform:translateY(-50%);aspect-ratio:1.585/1;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 2000px rgba(0,0,0,.45);pointer-events:none";
   zone.appendChild(cadre);
+  // Bandeau d'étape (indique clairement quelle face capturer)
+  var badge=document.createElement("div");
+  badge.style.cssText="position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#1a7a4a;color:#fff;font-size:13px;font-weight:bold;padding:6px 14px;border-radius:20px;box-shadow:0 1px 4px rgba(0,0,0,.5)";
+  badge.textContent="Étape 1 / 2 — RECTO";
+  zone.appendChild(badge);
   var lab=document.createElement("div");
-  lab.style.cssText="position:absolute;top:12px;left:12px;right:12px;text-align:center;color:#fff;font-size:15px;font-weight:bold;text-shadow:0 1px 3px #000";
+  lab.style.cssText="position:absolute;top:46px;left:12px;right:12px;text-align:center;color:#fff;font-size:15px;font-weight:bold;text-shadow:0 1px 3px #000";
   lab.textContent="RECTO (face photo) — cadrez la carte, puis Capturer";
   zone.appendChild(lab);
+  // Vignette du recto déjà capturé (coin haut-droit) : évite de reprendre la même face
+  var vignette=document.createElement("div");
+  vignette.style.cssText="position:absolute;top:10px;right:10px;display:none;text-align:center";
+  vignette.innerHTML='<div style="color:#39d98a;font-size:11px;font-weight:bold;text-shadow:0 1px 2px #000">Recto ✓</div>'+
+                     '<img id="cniVignetteRecto" style="width:84px;border:2px solid #39d98a;border-radius:6px">';
+  zone.appendChild(vignette);
   ov.appendChild(zone);
   var bar=document.createElement("div"); bar.style.cssText="padding:12px;display:flex;gap:10px;align-items:center;background:#111";
-  var bCap=document.createElement("button"); bCap.type="button"; bCap.className="btn"; bCap.textContent="📸 Capturer";
+  var bCap=document.createElement("button"); bCap.type="button"; bCap.className="btn"; bCap.textContent="📸 Capturer le RECTO";
   bCap.style.cssText="flex:1 1 auto;width:auto;font-size:16px;padding:14px";
   var bX=document.createElement("button"); bX.type="button"; bX.className="btn secondary"; bX.textContent="Annuler";
   bX.style.cssText="flex:0 0 96px;width:96px;padding:14px 8px";
@@ -931,8 +942,12 @@ function _ouvrirCameraCNI(){
     var b64=cnv.toDataURL("image/jpeg",0.85);
     if(etape===1){
       APP._cni_recto=b64; _majApercusCNI();
-      etape=2; lab.textContent="VERSO (face avec les lignes <<<) — cadrez, puis Capturer";
+      etape=2;
+      badge.style.background="#c0392b"; badge.textContent="Étape 2 / 2 — VERSO";
+      lab.textContent="VERSO (face avec les lignes <<<) — cadrez, puis Capturer";
       cadre.style.borderColor="#39d98a";
+      bCap.textContent="📸 Capturer le VERSO";
+      var vr=document.getElementById("cniVignetteRecto"); if(vr){ vr.src=b64; } vignette.style.display="block";
     } else {
       APP._cni_verso=b64; _majApercusCNI(); stop();
       // Déclenchement AUTOMATIQUE de la lecture + remplissage dès que recto ET verso sont pris
