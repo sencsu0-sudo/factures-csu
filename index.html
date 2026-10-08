@@ -301,7 +301,7 @@
 <script>
 // ══════════════ CONFIGURATION ══════════════
 // ⚠️ REMPLACER par l'URL de VOTRE Web App Apps Script (celle qui finit par /exec)
-var API_URL = "https://script.google.com/macros/s/AKfycbz8J8Va57APOmjKkvWhRzm-CWQfdtllCl-NGKzK0epa75zwA6xhRH5RklZ8r8glRMqe/exec";
+var API_URL = "___URL_WEBAPP_EXEC___";
 
 var APP = { auth:null, user:null, postes:[], regimes:{}, referentiels:{services:[],prestations:[],prix:{},parService:{}}, currentRegime:null };
 var LS_AUTH="sencsu_auth", LS_QUEUE="sencsu_queue", LS_BOOT="sencsu_boot";
@@ -820,7 +820,7 @@ function openForm(regimeKey, keepAdmin){
   showScreen("screenForm");
 }
 
-// ══════════════ SCAN CNI (Plan Sésame) : photo recto+verso -> OCR MRZ -> remplissage ══════════════
+// ══════════════ SCAN CNI (Plan Sésame) : caméra guidée recto+verso -> OCR MRZ -> remplissage ══════════════
 function _blocScanCNI(){
   var wrap=document.createElement("div");
   wrap.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:10px;padding:10px;margin-bottom:12px";
@@ -829,33 +829,120 @@ function _blocScanCNI(){
   t.style.cssText="font-size:14px;margin-bottom:8px";
   wrap.appendChild(t);
 
-  var ligne=document.createElement("div");
-  ligne.style.cssText="display:flex;gap:8px;flex-wrap:wrap";
-  function champPhoto(cle, libelle){
-    var col=document.createElement("div"); col.style.cssText="flex:1 1 45%;min-width:130px";
-    var lab=document.createElement("label"); lab.textContent=libelle; lab.style.cssText="font-size:12px;display:block;margin-bottom:4px";
+  // Aperçus recto / verso
+  var apercus=document.createElement("div");
+  apercus.style.cssText="display:flex;gap:8px;margin-bottom:8px";
+  apercus.innerHTML=
+    '<div style="flex:1;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:3px">Recto</div>'+
+      '<img id="cniImgRecto" style="display:none;max-width:100%;border-radius:6px;border:1px solid #ddd"></div>'+
+    '<div style="flex:1;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:3px">Verso</div>'+
+      '<img id="cniImgVerso" style="display:none;max-width:100%;border-radius:6px;border:1px solid #ddd"></div>';
+  wrap.appendChild(apercus);
+
+  var btnCam=document.createElement("button"); btnCam.type="button"; btnCam.className="btn";
+  btnCam.textContent="📷 Scanner la carte (caméra)"; btnCam.style.cssText="width:100%";
+  btnCam.addEventListener("click", _ouvrirCameraCNI);
+  wrap.appendChild(btnCam);
+
+  // Repli : importer des photos si la caméra n'est pas disponible
+  var repli=document.createElement("div"); repli.style.cssText="margin-top:8px";
+  var lienRepli=document.createElement("a"); lienRepli.href="javascript:void(0)";
+  lienRepli.textContent="Problème de caméra ? Importer des photos";
+  lienRepli.style.cssText="font-size:12px;color:#1a7a4a";
+  var zoneFichiers=document.createElement("div"); zoneFichiers.style.cssText="display:none;margin-top:6px";
+  function champFichier(cle, libelle){
+    var col=document.createElement("div"); col.style.cssText="margin-bottom:6px";
+    var lab=document.createElement("label"); lab.textContent=libelle; lab.style.cssText="font-size:12px;display:block";
     var inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.setAttribute("capture","environment");
     inp.style.cssText="width:100%;font-size:12px";
-    var img=document.createElement("img"); img.style.cssText="display:none;max-width:100%;border-radius:6px;margin-top:6px;border:1px solid #ddd";
     inp.addEventListener("change", function(){
       var f=inp.files && inp.files[0]; if(!f) return;
-      _imageVersBase64(f, 1600, function(b64){ APP["_cni_"+cle]=b64; img.src=b64; img.style.display="block"; });
+      _imageVersBase64(f, 1600, function(b64){
+        APP["_cni_"+cle]=b64; _majApercusCNI();
+        if(APP._cni_recto && APP._cni_verso){ _lireCNI(document.getElementById("cniBtnLire"), document.getElementById("cniMsg")); }
+      });
     });
-    col.appendChild(lab); col.appendChild(inp); col.appendChild(img);
-    return col;
+    col.appendChild(lab); col.appendChild(inp); return col;
   }
-  ligne.appendChild(champPhoto("recto","Recto (face photo)"));
-  ligne.appendChild(champPhoto("verso","Verso (lignes <<<)"));
-  wrap.appendChild(ligne);
+  zoneFichiers.appendChild(champFichier("recto","Recto (face photo)"));
+  zoneFichiers.appendChild(champFichier("verso","Verso (lignes <<<)"));
+  lienRepli.addEventListener("click", function(){ zoneFichiers.style.display = (zoneFichiers.style.display==="none"?"block":"none"); });
+  repli.appendChild(lienRepli); repli.appendChild(zoneFichiers);
+  wrap.appendChild(repli);
 
-  var btn=document.createElement("button"); btn.type="button"; btn.className="btn"; btn.textContent="🔎 Lire la carte et remplir";
-  btn.style.cssText="margin-top:8px;width:100%";
-  var msg=document.createElement("div"); msg.style.cssText="font-size:12px;margin-top:6px;color:#555";
+  var btn=document.createElement("button"); btn.type="button"; btn.className="btn secondary"; btn.id="cniBtnLire";
+  btn.textContent="🔎 Lire la carte et remplir"; btn.style.cssText="margin-top:8px;width:100%";
+  var msg=document.createElement("div"); msg.id="cniMsg"; msg.style.cssText="font-size:12px;margin-top:6px;color:#555";
   btn.addEventListener("click", function(){ _lireCNI(btn, msg); });
   wrap.appendChild(btn); wrap.appendChild(msg);
 
-  if(!navigator.onLine){ btn.disabled=true; msg.textContent="📴 Scan indisponible hors ligne — connectez-vous pour scanner, ou saisissez à la main."; }
+  if(!navigator.onLine){ btnCam.disabled=true; btn.disabled=true; msg.textContent="📴 Scan indisponible hors ligne — connectez-vous pour scanner, ou saisissez à la main."; }
   return wrap;
+}
+
+// Met à jour les vignettes recto/verso
+function _majApercusCNI(){
+  var ir=document.getElementById("cniImgRecto"), iv=document.getElementById("cniImgVerso");
+  if(ir && APP._cni_recto){ ir.src=APP._cni_recto; ir.style.display="block"; }
+  if(iv && APP._cni_verso){ iv.src=APP._cni_verso; iv.style.display="block"; }
+}
+
+// Caméra guidée : cadre au format carte (ratio 1.585), capture recto puis verso, puis lecture auto
+function _ouvrirCameraCNI(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    var m=document.getElementById("cniMsg"); if(m){ m.style.color="#b9770e"; m.textContent="Caméra non disponible sur cet appareil — utilisez « Importer des photos »."; }
+    return;
+  }
+  var etape=1; // 1 = recto, 2 = verso
+  var ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column";
+  var zone=document.createElement("div"); zone.style.cssText="position:relative;flex:1;display:flex;align-items:center;overflow:hidden";
+  var video=document.createElement("video"); video.autoplay=true; video.muted=true;
+  video.setAttribute("playsinline",""); video.setAttribute("webkit-playsinline","");
+  video.style.cssText="width:100%;height:auto;display:block;margin:auto 0";
+  zone.appendChild(video);
+  var cadre=document.createElement("div");
+  cadre.style.cssText="position:absolute;left:4%;right:4%;top:50%;transform:translateY(-50%);aspect-ratio:1.585/1;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 2000px rgba(0,0,0,.45);pointer-events:none";
+  zone.appendChild(cadre);
+  var lab=document.createElement("div");
+  lab.style.cssText="position:absolute;top:12px;left:12px;right:12px;text-align:center;color:#fff;font-size:15px;font-weight:bold;text-shadow:0 1px 3px #000";
+  lab.textContent="RECTO (face photo) — cadrez la carte, puis Capturer";
+  zone.appendChild(lab);
+  ov.appendChild(zone);
+  var bar=document.createElement("div"); bar.style.cssText="padding:12px;display:flex;gap:10px;justify-content:center;background:#111";
+  var bCap=document.createElement("button"); bCap.className="btn"; bCap.textContent="📸 Capturer"; bCap.style.cssText="flex:1;max-width:240px";
+  var bX=document.createElement("button"); bX.className="btn secondary"; bX.textContent="Annuler";
+  bar.appendChild(bCap); bar.appendChild(bX); ov.appendChild(bar);
+  document.body.appendChild(ov);
+
+  var stream=null;
+  function stop(){ try{ if(stream) stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} if(ov.parentNode) ov.parentNode.removeChild(ov); }
+  bX.onclick=stop;
+
+  navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" } }, audio:false })
+    .then(function(s){ stream=s; video.srcObject=s; var p=video.play&&video.play(); if(p&&p.catch) p.catch(function(){}); })
+    .catch(function(){ stop(); var m=document.getElementById("cniMsg"); if(m){ m.style.color="#b9770e"; m.textContent="Accès caméra refusé — autorisez la caméra ou utilisez « Importer des photos »."; } });
+
+  bCap.onclick=function(){
+    var vw=video.videoWidth, vh=video.videoHeight;
+    if(!vw || !vh) return;
+    var cw=Math.round(vw*0.92), ch=Math.round(cw/1.585);
+    if(ch>vh){ ch=Math.round(vh*0.92); cw=Math.round(ch*1.585); }
+    var cx=Math.round((vw-cw)/2), cy=Math.round((vh-ch)/2);
+    var maxW=1600, sc=Math.min(1, maxW/cw);
+    var cnv=document.createElement("canvas"); cnv.width=Math.round(cw*sc); cnv.height=Math.round(ch*sc);
+    cnv.getContext("2d").drawImage(video, cx,cy,cw,ch, 0,0,cnv.width,cnv.height);
+    var b64=cnv.toDataURL("image/jpeg",0.85);
+    if(etape===1){
+      APP._cni_recto=b64; _majApercusCNI();
+      etape=2; lab.textContent="VERSO (face avec les lignes <<<) — cadrez, puis Capturer";
+      cadre.style.borderColor="#39d98a";
+    } else {
+      APP._cni_verso=b64; _majApercusCNI(); stop();
+      // Déclenchement AUTOMATIQUE de la lecture + remplissage dès que recto ET verso sont pris
+      _lireCNI(document.getElementById("cniBtnLire"), document.getElementById("cniMsg"));
+    }
+  };
 }
 
 // Redimensionne une image (max maxDim px) et renvoie un base64 JPEG (payload réduit)
@@ -877,14 +964,16 @@ function _imageVersBase64(file, maxDim, cb){
 }
 
 function _lireCNI(btn, msg){
-  if(!APP._cni_verso){ msg.style.color="#c0392b"; msg.textContent="Prenez d'abord la photo du VERSO (la face avec les lignes <<<)."; return; }
-  if(!navigator.onLine){ msg.style.color="#c0392b"; msg.textContent="📴 Pas de réseau. Réessayez avec du réseau ou saisissez à la main."; return; }
-  btn.disabled=true; msg.style.color="#555"; msg.textContent="🔎 Lecture en cours… (quelques secondes)";
+  btn=btn||document.getElementById("cniBtnLire"); msg=msg||document.getElementById("cniMsg");
+  function dire(couleur, texte){ if(msg){ msg.style.color=couleur; msg.textContent=texte; } }
+  if(!APP._cni_verso){ dire("#c0392b","Prenez d'abord la photo du VERSO (la face avec les lignes <<<)."); return; }
+  if(!navigator.onLine){ dire("#c0392b","📴 Pas de réseau. Réessayez avec du réseau ou saisissez à la main."); return; }
+  if(btn) btn.disabled=true; dire("#555","🔎 Lecture en cours… (quelques secondes)");
   apiCall({ action:"ocr_cni", email:APP.auth.email, pin:APP.auth.pin, regime:"SESAME",
             recto:APP._cni_recto||"", verso:APP._cni_verso })
     .then(function(res){
-      btn.disabled=false;
-      if(res.error){ msg.style.color="#c0392b"; msg.textContent="❌ "+res.error; return; }
+      if(btn) btn.disabled=false;
+      if(res.error){ dire("#c0392b","❌ "+res.error); return; }
       var d=res.data||{};
       _remplirChampCNI("Prénom(s)", d.prenoms);
       _remplirChampCNI("Nom", d.nom);
@@ -893,12 +982,12 @@ function _lireCNI(btn, msg){
       _remplirChampCNI("N° CNI", d.cni);
       var manque=[];
       if(!d.prenoms) manque.push("prénom"); if(!d.nom) manque.push("nom"); if(!d.naissance) manque.push("date de naissance");
-      if(manque.length){ msg.style.color="#b9770e"; msg.textContent="⚠️ Lecture partielle ("+manque.join(", ")+"). Vérifiez/complétez à la main."; }
-      else { msg.style.color="var(--green)"; msg.textContent="✅ Identité remplie — vérifiez, puis renseignez les actes ci-dessous."; }
+      if(manque.length){ dire("#b9770e","⚠️ Lecture partielle ("+manque.join(", ")+"). Vérifiez/complétez à la main."); }
+      else { dire("var(--green)","✅ Identité remplie — vérifiez, puis renseignez les actes ci-dessous."); }
       var cible=document.getElementById("formActesZone")||document.getElementById("formActeInputs");
       if(cible&&cible.scrollIntoView){ try{ cible.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){ cible.scrollIntoView(); } }
     })
-    .catch(function(){ btn.disabled=false; msg.style.color="#c0392b"; msg.textContent="❌ Erreur réseau. Réessayez."; });
+    .catch(function(){ if(btn) btn.disabled=false; dire("#c0392b","❌ Erreur réseau. Réessayez."); });
 }
 
 function _remplirChampCNI(nom, val){
