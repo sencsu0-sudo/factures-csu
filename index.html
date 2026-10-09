@@ -857,7 +857,7 @@ function _estChampDiag(f){ return /diagnostic|motif/i.test(f.name||"") || /diagn
 function _champMedicalAdmin(regimeKey, f){
   if(regimeKey!=="ENFANTS_5ANS") return false;
   var nl=(f.name||"")+" "+(f.label||"");
-  return _estChampDiag(f) || /forfait/i.test(nl);
+  return _estChampDiag(f) || /forfait/i.test(nl) || /montant\s*total/i.test(nl);
 }
 var CHAMP_CODE_VERIF={ CLASSIQUE:"N° Matricule / Code Bénéficiaire", NDONGO_DARA:"N° Matricule / Code Bénéficiaire",
                        BSF:"N° Matricule / CNI", CEC:"N° Matricule / CNI" };
