@@ -835,8 +835,9 @@ function _blocVerifCSU(regimeKey){
                  '<span style="color:#777;font-weight:400">(vérification de la couverture)</span></div>';
   var ligne=document.createElement("div"); ligne.style.cssText="display:flex;gap:8px";
   var inp=document.createElement("input"); inp.type="text"; inp.id="verifCode"; inp.placeholder="ex. A5966R8576";
-  inp.style.cssText="flex:1;text-transform:uppercase";
-  var btn=document.createElement("button"); btn.type="button"; btn.className="btn"; btn.textContent="Vérifier"; btn.style.cssText="flex:0 0 auto";
+  inp.style.cssText="flex:1 1 auto;min-width:0;text-transform:uppercase;padding:12px;font-size:15px";
+  var btn=document.createElement("button"); btn.type="button"; btn.className="btn"; btn.textContent="Vérifier";
+  btn.style.cssText="flex:0 0 auto;width:auto;padding:12px 20px";
   btn.addEventListener("click", function(){ _verifierCSU(regimeKey, inp, btn, msg, btnManuel); });
   inp.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); btn.click(); } });
   ligne.appendChild(inp); ligne.appendChild(btn); wrap.appendChild(ligne);
