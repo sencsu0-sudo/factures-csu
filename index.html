@@ -784,6 +784,7 @@ function openForm(regimeKey, keepAdmin){
 
   regime.fields.forEach(function(f){
     if(estChampActe(f)) return;
+    if(_champMedicalAdmin(regimeKey, f)) return; // affiché dans la section médicale
     var lbl=document.createElement("label"); lbl.textContent=f.label||f.name; if(f.req) lbl.className="req"; box.appendChild(lbl);
     var el=_creerChampCSU(f);
     if(keepAdmin && oldValues[f.name]!==undefined && !/diagnostic|date de prise/i.test(f.name)){ el.value=oldValues[f.name]; }
@@ -791,6 +792,14 @@ function openForm(regimeKey, keepAdmin){
   });
 
   if(regimeAActes){
+    // Champs médicaux hors acte (ex. Diagnostic pour les moins de 5 ans) en tête de la section médicale
+    regime.fields.forEach(function(f){
+      if(estChampActe(f) || !_champMedicalAdmin(regimeKey, f)) return;
+      var lblD=document.createElement("label"); lblD.textContent=f.label||f.name; if(f.req) lblD.className="req";
+      var elD=_creerChampCSU(f);
+      if(keepAdmin && oldValues[f.name]!==undefined && !/diagnostic|date de prise/i.test(f.name)){ elD.value=oldValues[f.name]; }
+      acteBox.appendChild(lblD); acteBox.appendChild(elD);
+    });
     var fService=APP._csuActeFields.filter(function(f){return f.list==="services";})[0];
     var fAutres=APP._csuActeFields.filter(function(f){return f.list!=="services";});
     if(fService){
@@ -834,6 +843,10 @@ var REGIMES_VERIF={ CLASSIQUE:1, NDONGO_DARA:1, BSF:1, CEC:1 };
 function _estWizard(r){ return !!REGIMES_VERIF[r] || r==="SESAME" || r==="ENFANTS_5ANS"; }
 // Régimes en assistant MAIS sans étape de vérification/scan : on démarre directement sur le formulaire
 function _wizSansVerif(r){ return r==="ENFANTS_5ANS"; }
+// Champ « Diagnostic / Motif de consultation » (à placer dans la section médicale)
+function _estChampDiag(f){ return /diagnostic|motif/i.test(f.name||"") || /diagnostic|motif/i.test(f.label||""); }
+// Champs à afficher dans la section médicale (et non dans « Informations bénéficiaires »)
+function _champMedicalAdmin(regimeKey, f){ return regimeKey==="ENFANTS_5ANS" && _estChampDiag(f); }
 var CHAMP_CODE_VERIF={ CLASSIQUE:"N° Matricule / Code Bénéficiaire", NDONGO_DARA:"N° Matricule / Code Bénéficiaire",
                        BSF:"N° Matricule / CNI", CEC:"N° Matricule / CNI" };
 
@@ -1409,7 +1422,8 @@ function saveEntry(closeAfter){
   var patient={}, datePrise=null;
   regime.fields.forEach(function(f){
     if(estChampActe(f)) return;
-    var el=box.querySelector('[data-field="'+f.name.replace(/"/g,'\\"')+'"]');
+    var sel='[data-field="'+f.name.replace(/"/g,'\\"')+'"]';
+    var el=box.querySelector(sel) || $("formActeInputs").querySelector(sel);
     var val=el?el.value.trim():"";
     if(f.name==="Date de naissance" && val) dateNaissance=val;
     if(/date de prise en charge/i.test(f.name) && val) datePrise=val;
