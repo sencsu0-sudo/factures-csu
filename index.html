@@ -792,23 +792,31 @@ function openForm(regimeKey, keepAdmin){
   });
 
   if(regimeAActes){
-    // Champs médicaux hors acte (ex. Diagnostic pour les moins de 5 ans) en tête de la section médicale
-    regime.fields.forEach(function(f){
-      if(estChampActe(f) || !_champMedicalAdmin(regimeKey, f)) return;
-      var lblD=document.createElement("label"); lblD.textContent=f.label||f.name; if(f.req) lblD.className="req";
-      var elD=_creerChampCSU(f);
-      if(keepAdmin && oldValues[f.name]!==undefined && !/diagnostic|date de prise/i.test(f.name)){ elD.value=oldValues[f.name]; }
-      acteBox.appendChild(lblD); acteBox.appendChild(elD);
-    });
     var fService=APP._csuActeFields.filter(function(f){return f.list==="services";})[0];
     var fAutres=APP._csuActeFields.filter(function(f){return f.list!=="services";});
-    if(fService){
+
+    // Champs médicaux affichés en tête (moins de 5 ans) : Forfait, Montant Total, puis Diagnostic
+    var tete=[];
+    if(regimeKey==="ENFANTS_5ANS"){
+      var _trv=function(re){ return regime.fields.filter(function(f){ return re.test((f.name||"")+" "+(f.label||"")); })[0]; };
+      [/forfait/i, /montant\s*total/i, /diagnostic|motif/i].forEach(function(re){ var f=_trv(re); if(f && tete.indexOf(f)===-1) tete.push(f); });
+    }
+    tete.forEach(function(f){
+      var lblT=document.createElement("label"); lblT.textContent=f.label||f.name; if(f.req) lblT.className="req";
+      var elT=_creerChampCSU(f);
+      if(keepAdmin && oldValues[f.name]!==undefined && !/diagnostic|date de prise/i.test(f.name)){ elT.value=oldValues[f.name]; }
+      acteBox.appendChild(lblT); acteBox.appendChild(elT);
+    });
+    var _enTete=function(f){ return tete.indexOf(f)!==-1; };
+
+    if(fService && !_enTete(fService)){
       var lblS=document.createElement("label"); lblS.textContent=fService.name; if(fService.req) lblS.className="req";
       acteBox.appendChild(lblS); acteBox.appendChild(_creerChampCSU(fService));
     }
     var ligne=document.createElement("div");
     ligne.style.cssText="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px";
     fAutres.forEach(function(f){
+      if(_enTete(f)) return;
       var col=document.createElement("div");
       col.style.cssText=(f.list==="prestations")?"flex:1 1 100%;min-width:150px":"flex:1 1 80px;min-width:70px";
       var lbl=document.createElement("label"); lbl.textContent=f.label||f.name; if(f.req) lbl.className="req"; lbl.style.cssText="font-size:12px";
