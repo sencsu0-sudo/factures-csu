@@ -782,9 +782,6 @@ function openForm(regimeKey, keepAdmin){
   APP._csuPanier=[];
   var acteBox=$("formActeInputs"); acteBox.innerHTML="";
 
-  // Plan Sésame : scan de la CNI (recto+verso) -> remplissage automatique de l'identité
-  if(regimeKey==="SESAME"){ APP._cni_recto=""; APP._cni_verso=""; box.appendChild(_blocScanCNI()); }
-
   regime.fields.forEach(function(f){
     if(estChampActe(f)) return;
     var lbl=document.createElement("label"); lbl.textContent=f.label||f.name; if(f.req) lbl.className="req"; box.appendChild(lbl);
@@ -820,10 +817,12 @@ function openForm(regimeKey, keepAdmin){
 
   // Assistant par étapes (régimes à vérification de couverture) ou affichage normal
   _wizDemonter();
-  if(REGIMES_VERIF[regimeKey]){
-    APP._verifStatut=""; APP._verifMotif=""; APP._benef=null; APP._regimeAActes=regimeAActes;
+  if(_estWizard(regimeKey)){
+    APP._regimeAActes=regimeAActes;
+    if(regimeKey==="SESAME"){ APP._cni_recto=""; APP._cni_verso=""; }
+    else { APP._verifStatut=""; APP._verifMotif=""; APP._benef=null; }
     _wizMonter(regimeKey);
-    // Hors ligne : pas de vérification possible -> saisie directe des infos bénéficiaire
+    // Hors ligne : ni vérification ni scan possibles -> saisie directe des infos bénéficiaire
     if(!navigator.onLine){ APP._verifStatut="manuel"; _wizEtape("infos"); }
   }
 
@@ -832,6 +831,9 @@ function openForm(regimeKey, keepAdmin){
 
 // ══════════════ VÉRIFICATION COUVERTURE — ASSISTANT PAR ÉTAPES (CLASSIQUE / NDONGO-ÉLÈVES / BSF / CEC) ══════════════
 var REGIMES_VERIF={ CLASSIQUE:1, NDONGO_DARA:1, BSF:1, CEC:1 };
+function _estWizard(r){ return !!REGIMES_VERIF[r] || r==="SESAME" || r==="ENFANTS_5ANS"; }
+// Régimes en assistant MAIS sans étape de vérification/scan : on démarre directement sur le formulaire
+function _wizSansVerif(r){ return r==="ENFANTS_5ANS"; }
 var CHAMP_CODE_VERIF={ CLASSIQUE:"N° Matricule / Code Bénéficiaire", NDONGO_DARA:"N° Matricule / Code Bénéficiaire",
                        BSF:"N° Matricule / CNI", CEC:"N° Matricule / CNI" };
 
@@ -844,25 +846,33 @@ function _wizDemonter(){
 
 function _wizHeader(titre, retourTxt, onRetour){
   var h=document.createElement("div"); h.style.cssText="margin:2px 0 10px";
-  var b=document.createElement("button"); b.type="button"; b.className="btn secondary"; b.textContent=retourTxt;
-  b.style.cssText="font-size:12px;padding:6px 10px;margin-bottom:8px;width:auto"; b.addEventListener("click",onRetour);
+  if(retourTxt && onRetour){
+    var b=document.createElement("button"); b.type="button"; b.className="btn secondary"; b.textContent=retourTxt;
+    b.style.cssText="font-size:12px;padding:6px 10px;margin-bottom:8px;width:auto"; b.addEventListener("click",onRetour);
+    h.appendChild(b);
+  }
   var t=document.createElement("div"); t.textContent=titre; t.style.cssText="font-size:16px;font-weight:800;color:var(--green)";
-  h.appendChild(b); h.appendChild(t); return h;
+  h.appendChild(t); return h;
 }
 
 function _wizMonter(regimeKey){
   var box=$("formFields"), parent=box.parentNode, actes=$("formActesZone");
-  var wizVerif=_blocVerifCSU(regimeKey); wizVerif.id="wizVerif";
-  var infosHdr=_wizHeader("👤 Informations bénéficiaires","← Modifier le code", function(){ _wizEtape("verif"); }); infosHdr.id="wizInfosHdr";
+  var sansVerif=_wizSansVerif(regimeKey);
+  var estSesame=(regimeKey==="SESAME");
+  var wizVerif=null;
+  if(!sansVerif){ wizVerif=estSesame?_blocScanCNI():_blocVerifCSU(regimeKey); wizVerif.id="wizVerif"; }
+  var infosHdr=_wizHeader("👤 Informations bénéficiaires",
+                          sansVerif?null:(estSesame?"← Rescanner la carte":"← Modifier le code"),
+                          sansVerif?null:function(){ _wizEtape("verif"); }); infosHdr.id="wizInfosHdr";
   var btnMed=document.createElement("button"); btnMed.id="btnMedical"; btnMed.type="button"; btnMed.className="btn";
   btnMed.textContent="➡️ Saisir les informations médicales"; btnMed.style.cssText="width:100%;margin-top:12px";
   btnMed.addEventListener("click", function(){ _wizEtape("medical"); });
   var medHdr=_wizHeader("🩺 Informations médicales","← Infos bénéficiaire", function(){ _wizEtape("infos"); }); medHdr.id="wizMedHdr";
-  parent.insertBefore(wizVerif, box);
+  if(wizVerif) parent.insertBefore(wizVerif, box);
   parent.insertBefore(infosHdr, box);
   parent.insertBefore(btnMed, actes);
   parent.insertBefore(medHdr, actes);
-  _wizEtape("verif");
+  _wizEtape(sansVerif?"infos":"verif");
 }
 
 function _wizEtape(e){
@@ -1031,6 +1041,12 @@ function _blocScanCNI(){
   btnJoindre.addEventListener("click", function(){ zoneFichiers.style.display = (zoneFichiers.style.display==="none"?"block":"none"); });
   wrap.appendChild(btnJoindre); wrap.appendChild(zoneFichiers);
 
+  // Saisir sans scanner — passe directement aux informations du bénéficiaire
+  var btnManuel=document.createElement("button"); btnManuel.type="button"; btnManuel.className="btn secondary";
+  btnManuel.textContent="✍️ Saisir sans scanner"; btnManuel.style.cssText="width:100%;margin-top:8px";
+  btnManuel.addEventListener("click", function(){ _wizEtape("infos"); });
+  wrap.appendChild(btnManuel);
+
   var msg=document.createElement("div"); msg.id="cniMsg"; msg.style.cssText="font-size:12px;margin-top:8px;color:#555";
   wrap.appendChild(msg);
 
@@ -1164,12 +1180,16 @@ function _lireCNI(btn, msg){
       var manque=[];
       if(!d.prenoms) manque.push("prénom"); if(!d.nom) manque.push("nom"); if(!d.naissance) manque.push("date de naissance");
       if(manque.length){ dire("#b9770e","⚠️ Lecture partielle ("+manque.join(", ")+"). Vérifiez/complétez à la main."); }
-      else { dire("var(--green)","✅ Identité remplie — vérifiez, puis renseignez les actes ci-dessous."); }
+      else { dire("var(--green)","✅ Identité remplie — vérifiez les informations du bénéficiaire."); }
       // Diagnostic : afficher le texte lu (surtout en cas de lecture partielle)
       var diag=document.getElementById("cniDiag"), diagTxt=document.getElementById("cniDiagTxt");
       if(diag && diagTxt){ diagTxt.textContent=d.texte||""; diag.style.display=(d.texte?"block":"none"); if(manque.length){ try{ diag.open=true; }catch(e){} } }
-      var cible=document.getElementById("formActesZone")||document.getElementById("formActeInputs");
-      if(cible&&cible.scrollIntoView){ try{ cible.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){ cible.scrollIntoView(); } }
+      // Mode assistant (SESAME) : avancer vers « Informations bénéficiaires »
+      if(document.getElementById("wizVerif")){ APP._verifStatut="valide"; _wizEtape("infos"); }
+      else {
+        var cible=document.getElementById("formActesZone")||document.getElementById("formActeInputs");
+        if(cible&&cible.scrollIntoView){ try{ cible.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){ cible.scrollIntoView(); } }
+      }
     })
     .catch(function(){ if(btn) btn.disabled=false; dire("#c0392b","❌ Erreur réseau. Réessayez."); });
 }
