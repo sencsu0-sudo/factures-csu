@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 // Changer la version a chaque mise a jour pour forcer le rafraichissement du cache
-const CACHE_VERSION = "sencsu-v43";
+const CACHE_VERSION = "sencsu-v44";
 
 // Fichiers a mettre en cache pour un fonctionnement 100% hors ligne
 const FICHIERS_CACHE = [
