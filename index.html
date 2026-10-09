@@ -301,7 +301,7 @@
 <script>
 // ══════════════ CONFIGURATION ══════════════
 // ⚠️ REMPLACER par l'URL de VOTRE Web App Apps Script (celle qui finit par /exec)
-var API_URL = "https://script.google.com/macros/s/AKfycbz8J8Va57APOmjKkvWhRzm-CWQfdtllCl-NGKzK0epa75zwA6xhRH5RklZ8r8glRMqe/exec";
+var API_URL = "___URL_WEBAPP_EXEC___";
 
 var APP = { auth:null, user:null, postes:[], regimes:{}, referentiels:{services:[],prestations:[],prix:{},parService:{}}, currentRegime:null };
 var LS_AUTH="sencsu_auth", LS_QUEUE="sencsu_queue", LS_BOOT="sencsu_boot";
@@ -885,10 +885,10 @@ function _blocVerifCSU(regimeKey){
   var ligne=document.createElement("div"); ligne.style.cssText="display:flex;gap:8px;align-items:stretch";
   var inp=document.createElement("input"); inp.type="text"; inp.id="verifCode"; inp.placeholder="ex. A5966R8576";
   inp.autocapitalize="characters"; inp.autocomplete="off"; inp.spellcheck=false;
-  inp.style.cssText="flex:1 1 auto;min-width:0;text-transform:uppercase;letter-spacing:1px;padding:14px;font-size:20px;font-weight:700";
+  inp.style.cssText="flex:1 1 auto;min-width:0;height:54px;box-sizing:border-box;text-transform:uppercase;letter-spacing:1px;padding:0 14px;font-size:20px;font-weight:700";
   inp.addEventListener("input", function(){ var p=inp.selectionStart; inp.value=(inp.value||"").toUpperCase(); try{ inp.setSelectionRange(p,p); }catch(e){} });
   var btn=document.createElement("button"); btn.type="button"; btn.className="btn"; btn.textContent="Vérifier";
-  btn.style.cssText="flex:0 0 auto;width:auto;padding:0 22px;font-size:16px";
+  btn.style.cssText="flex:0 0 auto;width:auto;height:54px;box-sizing:border-box;margin:0;padding:0 22px;font-size:16px;display:flex;align-items:center;justify-content:center";
   var msg=document.createElement("div"); msg.id="verifMsg"; msg.style.cssText="font-size:13px;margin-top:10px;color:#555";
   var resultat=document.createElement("div"); resultat.id="verifResultat"; resultat.style.cssText="margin-top:10px";
   var btnManuel=document.createElement("button"); btnManuel.type="button"; btnManuel.className="btn secondary";
