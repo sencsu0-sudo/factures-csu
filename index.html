@@ -785,6 +785,9 @@ function openForm(regimeKey, keepAdmin){
   // Plan Sésame : scan de la CNI (recto+verso) -> remplissage automatique de l'identité
   if(regimeKey==="SESAME"){ APP._cni_recto=""; APP._cni_verso=""; box.appendChild(_blocScanCNI()); }
 
+  // CLASSIQUE / NDONGO-ÉLÈVES / BSF / CEC : vérification du code d'immatriculation (couverture)
+  if(REGIMES_VERIF[regimeKey]){ APP._verifStatut=""; APP._verifMotif=""; box.appendChild(_blocVerifCSU(regimeKey)); }
+
   regime.fields.forEach(function(f){
     if(estChampActe(f)) return;
     var lbl=document.createElement("label"); lbl.textContent=f.label||f.name; if(f.req) lbl.className="req"; box.appendChild(lbl);
@@ -818,6 +821,74 @@ function openForm(regimeKey, keepAdmin){
   $("formActesZone").style.display=regimeAActes?"block":"none";
   $("acteCsuErr").textContent=""; renderPanierCSU();
   showScreen("screenForm");
+}
+
+// ══════════════ VÉRIFICATION COUVERTURE (CLASSIQUE / NDONGO-ÉLÈVES / BSF / CEC) ══════════════
+var REGIMES_VERIF={ CLASSIQUE:1, NDONGO_DARA:1, BSF:1, CEC:1 };
+var CHAMP_CODE_VERIF={ CLASSIQUE:"N° Matricule / Code Bénéficiaire", NDONGO_DARA:"N° Matricule / Code Bénéficiaire",
+                       BSF:"N° Matricule / CNI", CEC:"N° Matricule / CNI" };
+
+function _blocVerifCSU(regimeKey){
+  var wrap=document.createElement("div");
+  wrap.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:10px;padding:10px;margin-bottom:12px";
+  wrap.innerHTML='<div style="font-size:14px;margin-bottom:8px">🔖 <b>Code d\'immatriculation</b> '+
+                 '<span style="color:#777;font-weight:400">(vérification de la couverture)</span></div>';
+  var ligne=document.createElement("div"); ligne.style.cssText="display:flex;gap:8px";
+  var inp=document.createElement("input"); inp.type="text"; inp.id="verifCode"; inp.placeholder="ex. A5966R8576";
+  inp.style.cssText="flex:1;text-transform:uppercase";
+  var btn=document.createElement("button"); btn.type="button"; btn.className="btn"; btn.textContent="Vérifier"; btn.style.cssText="flex:0 0 auto";
+  btn.addEventListener("click", function(){ _verifierCSU(regimeKey, inp, btn, msg, btnManuel); });
+  inp.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); btn.click(); } });
+  ligne.appendChild(inp); ligne.appendChild(btn); wrap.appendChild(ligne);
+  var msg=document.createElement("div"); msg.id="verifMsg"; msg.style.cssText="font-size:12px;margin-top:8px;color:#555";
+  wrap.appendChild(msg);
+  var btnManuel=document.createElement("button"); btnManuel.type="button"; btnManuel.className="btn secondary";
+  btnManuel.textContent="✍️ Saisir les infos manuellement"; btnManuel.style.cssText="width:100%;margin-top:8px;display:none";
+  btnManuel.addEventListener("click", function(){
+    APP._verifStatut="manuel"; APP._verifMotif="";
+    msg.style.color="#b9770e"; msg.textContent="✍️ Saisie manuelle activée (service de vérification non utilisé).";
+    btnManuel.style.display="none";
+  });
+  wrap.appendChild(btnManuel);
+  if(!navigator.onLine){ btn.disabled=true; msg.textContent="📴 Vérification indisponible hors ligne."; btnManuel.style.display="block"; }
+  return wrap;
+}
+
+function _verifierCSU(regimeKey, inp, btn, msg, btnManuel){
+  var code=(inp.value||"").trim().toUpperCase();
+  if(!code){ msg.style.color="#c0392b"; msg.textContent="Entrez le code d'immatriculation."; return; }
+  if(!navigator.onLine){ msg.style.color="#c0392b"; msg.textContent="📴 Pas de réseau."; btnManuel.style.display="block"; return; }
+  btn.disabled=true; msg.style.color="#555"; msg.textContent="🔎 Vérification en cours…";
+  APP._verifStatut="";
+  apiCall({ action:"verif_csu", email:APP.auth.email, pin:APP.auth.pin, regime:regimeKey, code:code })
+    .then(function(res){
+      btn.disabled=false;
+      if(res.error){ msg.style.color="#c0392b"; msg.textContent="❌ "+res.error; return; }
+      if(res.indisponible){
+        msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.erreur||"Service de vérification indisponible.")+" Vous pouvez saisir les infos manuellement.";
+        btnManuel.style.display="block"; return;
+      }
+      if(!res.trouve){ APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Code introuvable.";
+        msg.style.color="#c0392b"; msg.textContent="⛔ "+(res.motif||"Aucun bénéficiaire pour ce code."); return; }
+      if(!res.valide){ APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Carte non valide.";
+        msg.style.color="#c0392b"; msg.textContent="⛔ Facturation bloquée : "+(res.motif||"carte non valide."); return; }
+      // Valide : charger les champs
+      var d=res.data||{};
+      _remplirChampCNI("Prénom(s)", d.prenom);
+      _remplirChampCNI("Nom", d.nom);
+      _remplirChampCNI("Date de naissance", d.naissance);
+      _remplirChampCNI("Sexe (H/F)", d.sexe);
+      _remplirChampCNI("N° Téléphone", d.telephone);
+      _remplirChampCNI(CHAMP_CODE_VERIF[regimeKey]||"", d.code);
+      APP._verifStatut="valide"; APP._verifMotif="";
+      var det=[]; if(d.regime) det.push(d.regime); if(d.joursRestants!=="" && d.joursRestants!=null) det.push(d.joursRestants+" j restants");
+      msg.style.color="var(--green)";
+      msg.textContent="✅ Couverture valide — "+(d.nom||"")+" "+(d.prenom||"")+(det.length?" ("+det.join(" · ")+")":"")+". Complétez les actes ci-dessous.";
+      var cible=document.getElementById("formActesZone")||document.getElementById("formActeInputs");
+      if(cible&&cible.scrollIntoView){ try{ cible.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+    })
+    .catch(function(){ btn.disabled=false; msg.style.color="#b9770e";
+      msg.textContent="⚠️ Service injoignable. Vous pouvez saisir les infos manuellement."; btnManuel.style.display="block"; });
 }
 
 // ══════════════ SCAN CNI (Plan Sésame) : caméra guidée recto+verso -> OCR MRZ -> remplissage ══════════════
@@ -1213,6 +1284,11 @@ function computeMontant(){
 }
 
 function saveEntry(closeAfter){
+  // Blocage facturation : régimes à vérification de couverture
+  if(REGIMES_VERIF[APP.currentRegime]){
+    if(APP._verifStatut==="invalide"){ $("formErr").textContent="⛔ Facturation bloquée : "+(APP._verifMotif||"carte non valide."); return; }
+    if(APP._verifStatut!=="valide" && APP._verifStatut!=="manuel"){ $("formErr").textContent="Vérifiez d'abord le code d'immatriculation (ou choisissez « Saisir les infos »)."; return; }
+  }
   var regime=APP.regimes[APP.currentRegime], box=$("formFields"), missing=[], dateNaissance=null;
   function estChampActe(f){ return f.list==="services"||f.list==="prestations"||f.qte||f.pu||f.montant; }
   var regimeAActes=regime.fields.some(estChampActe);
