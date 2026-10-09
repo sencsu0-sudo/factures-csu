@@ -823,6 +823,8 @@ function openForm(regimeKey, keepAdmin){
   if(REGIMES_VERIF[regimeKey]){
     APP._verifStatut=""; APP._verifMotif=""; APP._benef=null; APP._regimeAActes=regimeAActes;
     _wizMonter(regimeKey);
+    // Hors ligne : pas de vérification possible -> saisie directe des infos bénéficiaire
+    if(!navigator.onLine){ APP._verifStatut="manuel"; _wizEtape("infos"); }
   }
 
   showScreen("screenForm");
@@ -892,7 +894,7 @@ function _blocVerifCSU(regimeKey){
   var msg=document.createElement("div"); msg.id="verifMsg"; msg.style.cssText="font-size:13px;margin-top:10px;color:#555";
   var resultat=document.createElement("div"); resultat.id="verifResultat"; resultat.style.cssText="margin-top:10px";
   var btnManuel=document.createElement("button"); btnManuel.type="button"; btnManuel.className="btn secondary";
-  btnManuel.textContent="✍️ Saisir les infos manuellement"; btnManuel.style.cssText="width:100%;margin-top:10px;display:none";
+  btnManuel.textContent="✍️ Saisir les informations du bénéficiaire"; btnManuel.style.cssText="width:100%;margin-top:10px;display:none";
   btnManuel.addEventListener("click", function(){
     APP._verifStatut="manuel"; APP._verifMotif="";
     _remplirChampCNI(CHAMP_CODE_VERIF[regimeKey]||"", (inp.value||"").trim().toUpperCase());
@@ -960,8 +962,9 @@ function _verifierCSU(regimeKey, inp, btn, msg, resultat, btnManuel){
         btnManuel.style.display="block"; return;
       }
       if(!res.trouve){
-        APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Code introuvable.";
-        msg.style.color="#c0392b"; msg.textContent="⛔ "+(res.motif||"Aucun bénéficiaire pour ce code."); return;
+        APP._verifStatut=""; APP._verifMotif="";
+        msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.motif||"Aucun bénéficiaire pour ce code.")+" Vous pouvez saisir les informations manuellement.";
+        btnManuel.style.display="block"; return;
       }
       msg.textContent="";
       var d=res.data||{}; APP._benef=d;
