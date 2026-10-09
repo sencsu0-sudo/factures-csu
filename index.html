@@ -266,7 +266,7 @@
       <div id="formPanier" style="margin-top:12px"></div>
       <div id="formPanierTotal" style="text-align:right;font-size:15px;font-weight:700;color:var(--green);margin-top:6px"></div>
     </div>
-    <button class="btn" onclick="saveEntry(true)" style="margin-top:12px">💾 Valider le patient</button>
+    <button class="btn" id="btnValiderPatient" onclick="saveEntry(true)" style="margin-top:12px">💾 Valider le patient</button>
     <div class="err" id="formErr"></div>
   </div>
 </div>
@@ -785,9 +785,6 @@ function openForm(regimeKey, keepAdmin){
   // Plan Sésame : scan de la CNI (recto+verso) -> remplissage automatique de l'identité
   if(regimeKey==="SESAME"){ APP._cni_recto=""; APP._cni_verso=""; box.appendChild(_blocScanCNI()); }
 
-  // CLASSIQUE / NDONGO-ÉLÈVES / BSF / CEC : vérification du code d'immatriculation (couverture)
-  if(REGIMES_VERIF[regimeKey]){ APP._verifStatut=""; APP._verifMotif=""; box.appendChild(_blocVerifCSU(regimeKey)); }
-
   regime.fields.forEach(function(f){
     if(estChampActe(f)) return;
     var lbl=document.createElement("label"); lbl.textContent=f.label||f.name; if(f.req) lbl.className="req"; box.appendChild(lbl);
@@ -820,76 +817,168 @@ function openForm(regimeKey, keepAdmin){
 
   $("formActesZone").style.display=regimeAActes?"block":"none";
   $("acteCsuErr").textContent=""; renderPanierCSU();
+
+  // Assistant par étapes (régimes à vérification de couverture) ou affichage normal
+  _wizDemonter();
+  if(REGIMES_VERIF[regimeKey]){
+    APP._verifStatut=""; APP._verifMotif=""; APP._benef=null; APP._regimeAActes=regimeAActes;
+    _wizMonter(regimeKey);
+  }
+
   showScreen("screenForm");
 }
 
-// ══════════════ VÉRIFICATION COUVERTURE (CLASSIQUE / NDONGO-ÉLÈVES / BSF / CEC) ══════════════
+// ══════════════ VÉRIFICATION COUVERTURE — ASSISTANT PAR ÉTAPES (CLASSIQUE / NDONGO-ÉLÈVES / BSF / CEC) ══════════════
 var REGIMES_VERIF={ CLASSIQUE:1, NDONGO_DARA:1, BSF:1, CEC:1 };
 var CHAMP_CODE_VERIF={ CLASSIQUE:"N° Matricule / Code Bénéficiaire", NDONGO_DARA:"N° Matricule / Code Bénéficiaire",
                        BSF:"N° Matricule / CNI", CEC:"N° Matricule / CNI" };
 
+// Retire les éléments de l'assistant et réaffiche le formulaire normal
+function _wizDemonter(){
+  ["wizVerif","wizInfosHdr","btnMedical","wizMedHdr"].forEach(function(id){ var e=document.getElementById(id); if(e) e.remove(); });
+  var ff=$("formFields"); if(ff) ff.style.display="";
+  var bv=$("btnValiderPatient"); if(bv) bv.style.display="";
+}
+
+function _wizHeader(titre, retourTxt, onRetour){
+  var h=document.createElement("div"); h.style.cssText="margin:2px 0 10px";
+  var b=document.createElement("button"); b.type="button"; b.className="btn secondary"; b.textContent=retourTxt;
+  b.style.cssText="font-size:12px;padding:6px 10px;margin-bottom:8px;width:auto"; b.addEventListener("click",onRetour);
+  var t=document.createElement("div"); t.textContent=titre; t.style.cssText="font-size:16px;font-weight:800;color:var(--green)";
+  h.appendChild(b); h.appendChild(t); return h;
+}
+
+function _wizMonter(regimeKey){
+  var box=$("formFields"), parent=box.parentNode, actes=$("formActesZone");
+  var wizVerif=_blocVerifCSU(regimeKey); wizVerif.id="wizVerif";
+  var infosHdr=_wizHeader("👤 Informations bénéficiaires","← Modifier le code", function(){ _wizEtape("verif"); }); infosHdr.id="wizInfosHdr";
+  var btnMed=document.createElement("button"); btnMed.id="btnMedical"; btnMed.type="button"; btnMed.className="btn";
+  btnMed.textContent="➡️ Saisir les informations médicales"; btnMed.style.cssText="width:100%;margin-top:12px";
+  btnMed.addEventListener("click", function(){ _wizEtape("medical"); });
+  var medHdr=_wizHeader("🩺 Informations médicales","← Infos bénéficiaire", function(){ _wizEtape("infos"); }); medHdr.id="wizMedHdr";
+  parent.insertBefore(wizVerif, box);
+  parent.insertBefore(infosHdr, box);
+  parent.insertBefore(btnMed, actes);
+  parent.insertBefore(medHdr, actes);
+  _wizEtape("verif");
+}
+
+function _wizEtape(e){
+  APP._wizEtape=e;
+  var actes=!!APP._regimeAActes;
+  function aff(id,on){ var el=document.getElementById(id); if(el) el.style.display=on?"":"none"; }
+  aff("wizVerif", e==="verif");
+  aff("wizInfosHdr", e==="infos");
+  aff("formFields", e==="infos");
+  aff("btnMedical", e==="infos" && actes);
+  aff("wizMedHdr", e==="medical" && actes);
+  var fz=$("formActesZone"); if(fz) fz.style.display=(e==="medical" && actes)?"block":"none";
+  var bv=$("btnValiderPatient"); if(bv) bv.style.display=(e==="medical" || (e==="infos" && !actes))?"":"none";
+  try{ window.scrollTo(0,0); }catch(_e){}
+}
+
 function _blocVerifCSU(regimeKey){
   var wrap=document.createElement("div");
-  wrap.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:10px;padding:10px;margin-bottom:12px";
-  wrap.innerHTML='<div style="font-size:14px;margin-bottom:8px">🔖 <b>Code d\'immatriculation</b> '+
-                 '<span style="color:#777;font-weight:400">(vérification de la couverture)</span></div>';
-  var ligne=document.createElement("div"); ligne.style.cssText="display:flex;gap:8px";
+  wrap.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:12px;padding:12px;margin-bottom:12px";
+  wrap.innerHTML='<div style="font-size:15px;margin-bottom:10px">🔖 <b>Code d\'immatriculation</b> '+
+                 '<span style="color:#777;font-weight:400">— vérification de la couverture</span></div>';
+  var ligne=document.createElement("div"); ligne.style.cssText="display:flex;gap:8px;align-items:stretch";
   var inp=document.createElement("input"); inp.type="text"; inp.id="verifCode"; inp.placeholder="ex. A5966R8576";
-  inp.style.cssText="flex:1 1 auto;min-width:0;text-transform:uppercase;padding:12px;font-size:15px";
+  inp.autocapitalize="characters"; inp.autocomplete="off"; inp.spellcheck=false;
+  inp.style.cssText="flex:1 1 auto;min-width:0;text-transform:uppercase;letter-spacing:1px;padding:14px;font-size:20px;font-weight:700";
+  inp.addEventListener("input", function(){ var p=inp.selectionStart; inp.value=(inp.value||"").toUpperCase(); try{ inp.setSelectionRange(p,p); }catch(e){} });
   var btn=document.createElement("button"); btn.type="button"; btn.className="btn"; btn.textContent="Vérifier";
-  btn.style.cssText="flex:0 0 auto;width:auto;padding:12px 20px";
-  btn.addEventListener("click", function(){ _verifierCSU(regimeKey, inp, btn, msg, btnManuel); });
-  inp.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); btn.click(); } });
-  ligne.appendChild(inp); ligne.appendChild(btn); wrap.appendChild(ligne);
-  var msg=document.createElement("div"); msg.id="verifMsg"; msg.style.cssText="font-size:12px;margin-top:8px;color:#555";
-  wrap.appendChild(msg);
+  btn.style.cssText="flex:0 0 auto;width:auto;padding:0 22px;font-size:16px";
+  var msg=document.createElement("div"); msg.id="verifMsg"; msg.style.cssText="font-size:13px;margin-top:10px;color:#555";
+  var resultat=document.createElement("div"); resultat.id="verifResultat"; resultat.style.cssText="margin-top:10px";
   var btnManuel=document.createElement("button"); btnManuel.type="button"; btnManuel.className="btn secondary";
-  btnManuel.textContent="✍️ Saisir les infos manuellement"; btnManuel.style.cssText="width:100%;margin-top:8px;display:none";
+  btnManuel.textContent="✍️ Saisir les infos manuellement"; btnManuel.style.cssText="width:100%;margin-top:10px;display:none";
   btnManuel.addEventListener("click", function(){
     APP._verifStatut="manuel"; APP._verifMotif="";
-    msg.style.color="#b9770e"; msg.textContent="✍️ Saisie manuelle activée (service de vérification non utilisé).";
-    btnManuel.style.display="none";
+    _remplirChampCNI(CHAMP_CODE_VERIF[regimeKey]||"", (inp.value||"").trim().toUpperCase());
+    _wizEtape("infos");
   });
-  wrap.appendChild(btnManuel);
+  btn.addEventListener("click", function(){ _verifierCSU(regimeKey, inp, btn, msg, resultat, btnManuel); });
+  inp.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); btn.click(); } });
+  ligne.appendChild(inp); ligne.appendChild(btn);
+  wrap.appendChild(ligne); wrap.appendChild(msg); wrap.appendChild(resultat); wrap.appendChild(btnManuel);
   if(!navigator.onLine){ btn.disabled=true; msg.textContent="📴 Vérification indisponible hors ligne."; btnManuel.style.display="block"; }
   return wrap;
 }
 
-function _verifierCSU(regimeKey, inp, btn, msg, btnManuel){
+// Carte bénéficiaire bien formatée (photo + infos)
+function _carteBenefHTML(d, facturable, motif){
+  var ph = d.photo
+    ? '<img src="'+d.photo+'" style="width:88px;height:88px;object-fit:cover;border-radius:50%;border:3px solid #1a7a4a">'
+    : '<div style="width:88px;height:88px;border-radius:50%;background:#e4efe8;display:flex;align-items:center;justify-content:center;font-size:34px">👤</div>';
+  var band = facturable
+    ? '<div style="background:#1a7a4a;color:#fff;padding:10px 12px;border-radius:8px;font-weight:800">✅ CARTE VALIDE — facturation autorisée</div>'
+    : '<div style="background:#c0392b;color:#fff;padding:10px 12px;border-radius:8px;font-weight:800">⛔ Facturation bloquée</div>'
+      +(motif?'<div style="color:#c0392b;font-size:13px;margin-top:6px"><b>Motif :</b> '+motif+'</div>':'');
+  function li(k,v){ return (v!==""&&v!=null)?('<div style="font-size:13px;margin:3px 0"><span style="color:#777">'+k+' :</span> <b>'+v+'</b></div>'):''; }
+  return band
+    +'<div style="display:flex;gap:12px;margin-top:12px;align-items:center">'+ph
+    +'<div style="flex:1;min-width:0">'
+      +'<div style="font-size:17px;font-weight:800">'+((d.nom||"")+" "+(d.prenom||"")).trim()+'</div>'
+      +li("Code assuré", d.codeInterne)+li("CNI", d.cni)
+    +'</div></div>'
+    +'<div style="margin-top:10px;border-top:1px solid #e0ebe4;padding-top:8px">'
+      +li("Date de naissance", d.naissanceFR||d.naissance)
+      +li("Lieu de naissance", d.lieuNaissance)
+      +li("Sexe", d.sexeLibelle)
+      +li("Téléphone", d.telephone)
+      +li("Régime / paquet", d.regime)
+      +li("Taux de couverture", (d.taux!==""&&d.taux!=null)?(d.taux+"%"):"")
+      +li("Période de couverture", (d.dateDebut&&d.dateFin)?(d.dateDebut+" au "+d.dateFin):"")
+      +li("Jours restants", (d.joursRestants!==""&&d.joursRestants!=null)?(d.joursRestants+" j"):"")
+    +'</div>';
+}
+
+function _chargerBenef(regimeKey, d){
+  _remplirChampCNI("Prénom(s)", d.prenom);
+  _remplirChampCNI("Nom", d.nom);
+  _remplirChampCNI("Date de naissance", d.naissance);
+  _remplirChampCNI("Sexe (H/F)", d.sexe);
+  _remplirChampCNI("N° Téléphone", d.telephone);
+  _remplirChampCNI(CHAMP_CODE_VERIF[regimeKey]||"", d.code);
+  APP._verifStatut="valide";
+  _wizEtape("infos");
+}
+
+function _verifierCSU(regimeKey, inp, btn, msg, resultat, btnManuel){
   var code=(inp.value||"").trim().toUpperCase();
+  resultat.innerHTML=""; btnManuel.style.display="none";
   if(!code){ msg.style.color="#c0392b"; msg.textContent="Entrez le code d'immatriculation."; return; }
   if(!navigator.onLine){ msg.style.color="#c0392b"; msg.textContent="📴 Pas de réseau."; btnManuel.style.display="block"; return; }
-  btn.disabled=true; msg.style.color="#555"; msg.textContent="🔎 Vérification en cours…";
-  APP._verifStatut="";
+  btn.disabled=true; msg.style.color="#555"; msg.textContent="🔎 Vérification en cours…"; APP._verifStatut="";
   apiCall({ action:"verif_csu", email:APP.auth.email, pin:APP.auth.pin, regime:regimeKey, code:code })
     .then(function(res){
       btn.disabled=false;
       if(res.error){ msg.style.color="#c0392b"; msg.textContent="❌ "+res.error; return; }
       if(res.indisponible){
-        msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.erreur||"Service de vérification indisponible.")+" Vous pouvez saisir les infos manuellement.";
+        msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.erreur||"Service de vérification indisponible.");
         btnManuel.style.display="block"; return;
       }
-      if(!res.trouve){ APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Code introuvable.";
-        msg.style.color="#c0392b"; msg.textContent="⛔ "+(res.motif||"Aucun bénéficiaire pour ce code."); return; }
-      if(!res.valide){ APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Carte non valide.";
-        msg.style.color="#c0392b"; msg.textContent="⛔ Facturation bloquée : "+(res.motif||"carte non valide."); return; }
-      // Valide : charger les champs
-      var d=res.data||{};
-      _remplirChampCNI("Prénom(s)", d.prenom);
-      _remplirChampCNI("Nom", d.nom);
-      _remplirChampCNI("Date de naissance", d.naissance);
-      _remplirChampCNI("Sexe (H/F)", d.sexe);
-      _remplirChampCNI("N° Téléphone", d.telephone);
-      _remplirChampCNI(CHAMP_CODE_VERIF[regimeKey]||"", d.code);
-      APP._verifStatut="valide"; APP._verifMotif="";
-      var det=[]; if(d.regime) det.push(d.regime); if(d.joursRestants!=="" && d.joursRestants!=null) det.push(d.joursRestants+" j restants");
-      msg.style.color="var(--green)";
-      msg.textContent="✅ Couverture valide — "+(d.nom||"")+" "+(d.prenom||"")+(det.length?" ("+det.join(" · ")+")":"")+". Complétez les actes ci-dessous.";
-      var cible=document.getElementById("formActesZone")||document.getElementById("formActeInputs");
-      if(cible&&cible.scrollIntoView){ try{ cible.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
+      if(!res.trouve){
+        APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Code introuvable.";
+        msg.style.color="#c0392b"; msg.textContent="⛔ "+(res.motif||"Aucun bénéficiaire pour ce code."); return;
+      }
+      msg.textContent="";
+      var d=res.data||{}; APP._benef=d;
+      var facturable=!!res.valide;
+      resultat.innerHTML=_carteBenefHTML(d, facturable, res.motif);
+      if(facturable){
+        APP._verifStatut="valide"; APP._verifMotif="";
+        var bCharger=document.createElement("button"); bCharger.type="button"; bCharger.className="btn";
+        bCharger.textContent="📥 Charger les informations bénéficiaire"; bCharger.style.cssText="width:100%;margin-top:12px";
+        bCharger.addEventListener("click", function(){ _chargerBenef(regimeKey, d); });
+        resultat.appendChild(bCharger);
+      } else {
+        APP._verifStatut="invalide"; APP._verifMotif=res.motif||"Carte non valide.";
+      }
     })
     .catch(function(){ btn.disabled=false; msg.style.color="#b9770e";
-      msg.textContent="⚠️ Service injoignable. Vous pouvez saisir les infos manuellement."; btnManuel.style.display="block"; });
+      msg.textContent="⚠️ Service injoignable."; btnManuel.style.display="block"; });
 }
 
 // ══════════════ SCAN CNI (Plan Sésame) : caméra guidée recto+verso -> OCR MRZ -> remplissage ══════════════
