@@ -4202,6 +4202,22 @@ function _codePatient(regime, patient){
   return k? patient[k] : "";
 }
 
+// Analyse une date « jj/mm/aaaa » ou « aaaa-mm-jj » (ou autre reconnu par Date).
+function _versDate(s){
+  s=String(s||"").trim(); if(!s) return null;
+  var m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+  var d=new Date(s); return isNaN(d)?null:d;
+}
+// Âge (en années) à une date de référence, à partir d'une date de naissance formatée.
+function _ageDepuis(naissance, ref){
+  var dn=_versDate(naissance); if(!dn) return null;
+  var dr=_versDate(ref)||new Date();
+  var age=dr.getFullYear()-dn.getFullYear(), mm=dr.getMonth()-dn.getMonth();
+  if(mm<0 || (mm===0 && dr.getDate()<dn.getDate())) age--;
+  return age;
+}
+
 // N° d'attestation : AAAA-#### (compteur local par année, incrémenté sur l'appareil du poste)
 function _prochainNumeroAttestation(){
   var an=new Date().getFullYear(), key="sencsu_att_seq_"+an, n=0;
@@ -4215,7 +4231,7 @@ function _demarrerDossier(ctx){
   var b=(APP._benef||{});
   ctx.code=_codePatient(ctx.regime, ctx.patient);
   var naissance=ctx.patient["Date de naissance"]||"";
-  var age=""; try{ if(naissance) age=calculerAge(naissance, ctx.datePrise); }catch(e){}
+  var age=""; try{ var _a=_ageDepuis(naissance, ctx.datePrise); if(_a!==null && _a!==undefined && !isNaN(_a)) age=_a; }catch(e){}
   ctx.cardInfo={ nom:ctx.patient["Nom"]||b.nom||"", prenoms:ctx.patient["Prénom(s)"]||b.prenom||"",
                  code:ctx.code, photo:(b&&b.photo)?b.photo:"" };
   // lignes attestation
@@ -4229,7 +4245,7 @@ function _demarrerDossier(ctx){
     var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0);
     if(isNaN(brut)) brut=0;
     var net=Math.round(brut*taux), paye=Math.round(brut-net);
-    return { date:ctx.datePrise||"", nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
+    return { date:(ctx.patient["Date de prise en charge"]||ctx.datePrise||""), nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
   });
   ctx.attInfo={ assureur:"SEN-CSU",
                 numero:_prochainNumeroAttestation(), prenoms:ctx.cardInfo.prenoms, nom:ctx.cardInfo.nom,
