@@ -4231,7 +4231,7 @@ function _demarrerDossier(ctx){
     var net=Math.round(brut*taux), paye=Math.round(brut-net);
     return { date:ctx.datePrise||"", nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
   });
-  ctx.attInfo={ assureur:(APP.regimes[ctx.regime]&&APP.regimes[ctx.regime].titre)||ctx.regime,
+  ctx.attInfo={ assureur:"SEN-CSU",
                 numero:_prochainNumeroAttestation(), prenoms:ctx.cardInfo.prenoms, nom:ctx.cardInfo.nom,
                 code:ctx.code, age:age, sexe:ctx.patient["Sexe (H/F)"]||ctx.patient["Sexe (M/F)"]||"" };
   ctx.id="DOS_"+uid();
@@ -4266,7 +4266,7 @@ function _afficherDossier(ctx){
   if(est){
     body.appendChild(_blocCNIDossier());
   } else {
-    body.appendChild(_blocPiece("carteRecto","🪪 Carte de couverture (physique, recto)","Photographiez la carte physique (recto) pour justifier la présence.", true));
+    body.appendChild(_blocPiece("carteRecto","🪪 Carte de couverture (physique, recto)","Photographiez la carte physique (recto) sur place — l'import n'est pas autorisé.", true, true));
   }
 
   var err=document.createElement("div"); err.id="dossierErr"; err.className="err"; body.appendChild(err);
@@ -4290,21 +4290,25 @@ function _afficherDossier(ctx){
   }).catch(function(){ var box=$("dosDocPreview"); if(box) box.textContent="⚠️ Impossible de générer les aperçus (ils seront régénérés)."; });
 }
 
-// Bloc capture d'une pièce (ticket / carte physique)
-function _blocPiece(cle, titre, aide, cadreCarte){
+// Bloc capture d'une pièce (ticket / carte physique). cameraOnly=true : pas d'import (photo prise sur place).
+function _blocPiece(cle, titre, aide, cadreCarte, cameraOnly){
   var wrap=document.createElement("div");
   wrap.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:10px";
   wrap.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:4px">'+titre+'</div>'+
                  '<div style="font-size:12px;color:#777;margin-bottom:8px">'+aide+'</div>';
   var bCam=document.createElement("button"); bCam.type="button"; bCam.className="btn"; bCam.textContent="📷 Photographier"; bCam.style.cssText="width:100%";
-  var bImp=document.createElement("button"); bImp.type="button"; bImp.className="btn secondary"; bImp.textContent="🖼️ Importer une photo"; bImp.style.cssText="width:100%;margin-top:8px";
-  var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.style.display="none";
   var prev=document.createElement("div"); prev.id="dosPrev_"+cle;
   function setImg(b64){ APP["_dossier_"+cle]=b64; prev.innerHTML='<div style="font-size:12px;color:var(--green);margin-top:6px">✓ Photo ajoutée</div>'+_vignette(b64); }
   bCam.onclick=function(){ _cameraUneImage({ cadreCarte:!!cadreCarte, titre:titre }, function(b64){ setImg(b64); }); };
-  bImp.onclick=function(){ fin.click(); };
-  fin.addEventListener("change", function(){ var f=fin.files&&fin.files[0]; if(!f) return; _imageVersBase64(f, 1600, function(b64){ setImg(b64); }); });
-  wrap.appendChild(bCam); wrap.appendChild(bImp); wrap.appendChild(fin); wrap.appendChild(prev);
+  wrap.appendChild(bCam);
+  if(!cameraOnly){
+    var bImp=document.createElement("button"); bImp.type="button"; bImp.className="btn secondary"; bImp.textContent="🖼️ Importer une photo"; bImp.style.cssText="width:100%;margin-top:8px";
+    var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.style.display="none";
+    bImp.onclick=function(){ fin.click(); };
+    fin.addEventListener("change", function(){ var f=fin.files&&fin.files[0]; if(!f) return; _imageVersBase64(f, 1600, function(b64){ setImg(b64); }); });
+    wrap.appendChild(bImp); wrap.appendChild(fin);
+  }
+  wrap.appendChild(prev);
   return wrap;
 }
 
@@ -4328,7 +4332,24 @@ function _blocCNIDossier(){
   }
   bScan.onclick=function(){ APP._cni_recto=""; APP._cni_verso=""; raf();
     _ouvrirCameraCNI(function(){ raf(); }); };  // callback : pas d'OCR, juste photos
-  wrap.appendChild(bScan); wrap.appendChild(prev); raf();
+  wrap.appendChild(bScan);
+  // Import (recto + verso) — alternative à la caméra
+  var bImp=document.createElement("button"); bImp.type="button"; bImp.className="btn secondary";
+  bImp.textContent="🖼️ Importer la CNI (recto + verso)"; bImp.style.cssText="width:100%;margin-top:8px";
+  var zone=document.createElement("div"); zone.style.cssText="display:none;margin-top:6px";
+  function champ(cle, libelle){
+    var col=document.createElement("div"); col.style.cssText="margin-bottom:6px";
+    var lab=document.createElement("label"); lab.textContent=libelle; lab.style.cssText="font-size:12px;display:block";
+    var inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.style.cssText="width:100%;font-size:12px";
+    inp.addEventListener("change", function(){ var f=inp.files&&inp.files[0]; if(!f) return;
+      _imageVersBase64(f, 1600, function(b64){ APP["_cni_"+cle]=b64; raf(); }); });
+    col.appendChild(lab); col.appendChild(inp); return col;
+  }
+  zone.appendChild(champ("recto","Recto (face photo)"));
+  zone.appendChild(champ("verso","Verso (lignes <<<)"));
+  bImp.addEventListener("click", function(){ zone.style.display=(zone.style.display==="none"?"block":"none"); });
+  wrap.appendChild(bImp); wrap.appendChild(zone);
+  wrap.appendChild(prev); raf();
   return wrap;
 }
 
@@ -4350,9 +4371,12 @@ function _terminerDossier(){
                  cniVerso:(ctx.regime==="SESAME"?APP._cni_verso:"")||"" };
     var d={ id:ctx.id, regime:ctx.regime, poste:ctx.poste, patient:ctx.patient, attInfo:ctx.attInfo, images:images, cree:Date.now() };
     _idbPut(d).then(function(){
-      toast("📁 Dossier enregistré"+(navigator.onLine? "" : " (en attente de réseau)"));
-      if(navigator.onLine){ _envoyerDossier(d).then(function(res){ if(res && !res.error){ _idbDel(d.id); } }).catch(function(){}); }
-      _finDossier(ctx);
+      if(!navigator.onLine){ toast("📁 Dossier enregistré (en attente de réseau)"); _finDossier(ctx); return; }
+      // En ligne : on envoie et on attend la réponse du serveur (feedback clair).
+      _envoyerDossier(d).then(function(res){
+        if(res && res.ok && !res.error){ _idbDel(d.id); toast("✅ Dossier envoyé sur Drive"); _finDossier(ctx); }
+        else { err.textContent="⚠️ Dossier conservé localement — serveur : "+((res&&res.error)||"réponse inattendue")+". Réessai à la prochaine synchro."; }
+      }).catch(function(e){ err.textContent="⚠️ Dossier conservé localement — envoi impossible ("+((e&&e.message)||"réseau")+"). Il repartira automatiquement."; });
     }).catch(function(){ err.textContent="❌ Impossible d'enregistrer le dossier localement."; });
   }).catch(function(){ err.textContent="❌ Erreur lors de la génération des documents."; });
 }
