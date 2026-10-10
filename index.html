@@ -4374,7 +4374,11 @@ function _terminerDossier(){
       if(!navigator.onLine){ toast("📁 Dossier enregistré (en attente de réseau)"); _finDossier(ctx); return; }
       // En ligne : on envoie et on attend la réponse du serveur (feedback clair).
       _envoyerDossier(d).then(function(res){
-        if(res && res.ok && !res.error){ _idbDel(d.id); toast("✅ Dossier envoyé sur Drive"); _finDossier(ctx); }
+        if(res && res.ok && !res.error){
+          _idbDel(d.id);
+          if(res.warn){ err.style.color="#b9770e"; err.textContent="⚠️ "+res.warn+(res.erreurPDF?(" — détail : "+res.erreurPDF):""); toast("⚠️ PDF non assemblé — images sauvées sur Drive",6000); }
+          else { toast("✅ Dossier envoyé sur Drive"); _finDossier(ctx); }
+        }
         else { err.textContent="⚠️ Dossier conservé localement — serveur : "+((res&&res.error)||"réponse inattendue")+". Réessai à la prochaine synchro."; }
       }).catch(function(e){ err.textContent="⚠️ Dossier conservé localement — envoi impossible ("+((e&&e.message)||"réseau")+"). Il repartira automatiquement."; });
     }).catch(function(){ err.textContent="❌ Impossible d'enregistrer le dossier localement."; });
