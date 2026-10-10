@@ -4097,7 +4097,7 @@ function _genCarte(info){
 }
 
 // ── ATTESTATION DE SOINS (PNG dataURL) ──
-function _genAttestation(info, lignes){
+function _genAttestation(info, lignes, totaux){
   return _chargerImg(ASSET_LOGO_ASCSU).then(function(logo){
     var W=1000, H=1414, M=50;
     var c=document.createElement("canvas"); c.width=W; c.height=H; var ctx=c.getContext("2d");
@@ -4139,19 +4139,23 @@ function _genAttestation(info, lignes){
     for(var k=0;k<Math.max(minrows,lignes.length);k++){
       ctx.lineWidth=1; ctx.strokeRect(tx0,y,tw,rh);
       for(var m=1;m<4;m++){ ctx.beginPath(); ctx.moveTo(cx[m],y); ctx.lineTo(cx[m],y+rh); ctx.stroke(); }
-      if(k<lignes.length){ var L=lignes[k]; totP+=(+L.paye||0); totF+=(+L.facture||0);
+      if(k<lignes.length){ var L=lignes[k];
+        if(typeof L.paye==="number") totP+=L.paye;
+        if(typeof L.facture==="number") totF+=L.facture;
         ctx.font="20px Arial"; ctx.fillStyle=_COL.dark;
         ctx.fillText(L.date||"", cx[0]+8, y+13);
         var nat=L.nature||""; while(ctx.measureText(nat).width>(cx[2]-cx[1]-14) && nat.length>3){ nat=nat.slice(0,-2); }
         if(nat!==(L.nature||"")) nat=nat+"…";
         ctx.fillText(nat, cx[1]+8, y+13);
         ctx.textAlign="right";
-        ctx.fillText(_fmtF(L.paye), cx[3]-8, y+13);
-        ctx.fillText(_fmtF(L.facture), cx[4]-8, y+13);
+        ctx.fillText(typeof L.paye==="number"?_fmtF(L.paye):String(L.paye==null?"":L.paye), cx[3]-8, y+13);
+        ctx.fillText(typeof L.facture==="number"?_fmtF(L.facture):String(L.facture==null?"":L.facture), cx[4]-8, y+13);
         ctx.textAlign="left";
       }
       y+=rh;
     }
+    // Totaux : surcharge éventuelle (ex. forfait moins de 5 ans)
+    if(totaux){ if(totaux.paye!=null) totP=totaux.paye; if(totaux.facture!=null) totF=totaux.facture; }
     // TOTAL
     ctx.lineWidth=2; ctx.strokeRect(tx0,y,tw,rh);
     for(var m2=1;m2<4;m2++){ ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(cx[m2],y); ctx.lineTo(cx[m2],y+rh); ctx.stroke(); }
@@ -4252,13 +4256,25 @@ function _demarrerDossier(ctx){
   var fPU=(ctx.acteFields||[]).filter(function(f){return f.pu;})[0];
   var fMT=(ctx.acteFields||[]).filter(function(f){return f.montant;})[0];
   var fPR=(ctx.acteFields||[]).filter(function(f){return f.list==="prestations";})[0];
-  ctx.lignes=(ctx.actes||[]).map(function(a){
-    var q=fQ?parseFloat(a[fQ.name]||"0"):0, pu=fPU?parseFloat(a[fPU.name]||"0"):0;
-    var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0);
-    if(isNaN(brut)) brut=0;
-    var net=Math.round(brut*taux), paye=Math.round(brut-net);
-    return { date:(ctx.patient["Date de prise en charge"]||ctx.datePrise||""), nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
-  });
+  var _dateAff=(ctx.patient["Date de prise en charge"]||ctx.datePrise||"");
+  if(ctx.regime==="ENFANTS_5ANS"){
+    // Moins de 5 ans : chaque prestation sur sa ligne (montants en tiret), forfait unique au TOTAL.
+    var forfait=parseFloat(String(ctx.patient["Montant Total"]||"").replace(/[^\d.]/g,""))||1400;
+    ctx.lignes=(ctx.actes||[]).map(function(a){
+      return { date:_dateAff, nature:fPR?(a[fPR.name]||""):"", paye:"—", facture:"—" };
+    }).filter(function(L){ return L.nature; });
+    if(!ctx.lignes.length) ctx.lignes=[{ date:_dateAff, nature:"Forfait prise en charge (moins de 5 ans)", paye:"—", facture:"—" }];
+    ctx.attTotaux={ paye:0, facture:forfait };
+  } else {
+    ctx.lignes=(ctx.actes||[]).map(function(a){
+      var q=fQ?parseFloat(a[fQ.name]||"0"):0, pu=fPU?parseFloat(a[fPU.name]||"0"):0;
+      var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0);
+      if(isNaN(brut)) brut=0;
+      var net=Math.round(brut*taux), paye=Math.round(brut-net);
+      return { date:_dateAff, nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
+    });
+    ctx.attTotaux=null;
+  }
   ctx.attInfo={ assureur:"SEN-CSU",
                 numero:_prochainNumeroAttestation(), prenoms:ctx.cardInfo.prenoms, nom:ctx.cardInfo.nom,
                 code:ctx.code, age:age, sexe:ctx.patient["Sexe (H/F)"]||ctx.patient["Sexe (M/F)"]||"" };
@@ -4312,7 +4328,7 @@ function _afficherDossier(ctx){
 
   // Générer les aperçus (asynchrone)
   var pCarte=REGIMES_CARTE[ctx.regime]? _genCarte(ctx.cardInfo) : Promise.resolve("");
-  Promise.all([pCarte, _genAttestation(ctx.attInfo, ctx.lignes)]).then(function(r){
+  Promise.all([pCarte, _genAttestation(ctx.attInfo, ctx.lignes, ctx.attTotaux)]).then(function(r){
     APP._dossier_carteImg=r[0]||""; APP._dossier_attImg=r[1]||"";
     var box=$("dosDocPreview"); if(!box) return; box.innerHTML="";
     if(APP._dossier_carteImg){ var d1=document.createElement("div"); d1.innerHTML='<div style="font-size:12px;color:#444;margin-top:4px">Carte de couverture ✓</div>'+_vignette(APP._dossier_carteImg); box.appendChild(d1); }
@@ -4427,7 +4443,7 @@ function _terminerDossier(){
 
   var pCarte, pAtt;
   if(APP._dossier_carteImg!==undefined && APP._dossier_attImg){ pCarte=Promise.resolve(APP._dossier_carteImg); pAtt=Promise.resolve(APP._dossier_attImg); }
-  else { pCarte=REGIMES_CARTE[ctx.regime]? _genCarte(ctx.cardInfo):Promise.resolve(""); pAtt=_genAttestation(ctx.attInfo, ctx.lignes); }
+  else { pCarte=REGIMES_CARTE[ctx.regime]? _genCarte(ctx.cardInfo):Promise.resolve(""); pAtt=_genAttestation(ctx.attInfo, ctx.lignes, ctx.attTotaux); }
 
   err.textContent="Enregistrement du dossier…";
   Promise.all([pCarte, pAtt]).then(function(r){
