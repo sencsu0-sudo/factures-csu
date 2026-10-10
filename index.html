@@ -3815,45 +3815,55 @@ function saveEntry(closeAfter){
 
 // ══════════════ SYNCHRONISATION ══════════════
 var syncing=false;
+// ── Loader de synchronisation (compteur de tâches : prestations + dossiers) ──
+var _syncJobs=0;
+function _syncLoaderShow(sub){ _syncJobs++; showLoader("🔄 Synchronisation…", sub||""); }
+function _syncLoaderSub(sub){ if(_syncJobs>0){ var e=$("loaderSub"); if(e) e.textContent=sub||""; } }
+function _syncLoaderDone(){ _syncJobs=Math.max(0,_syncJobs-1); if(_syncJobs<=0){ _syncJobs=0; hideLoader(); } }
+
 function trySync(manual){
-  if(syncing) return;
+  if(syncing){ if(manual) toast("🔄 Synchronisation déjà en cours…"); return; }
   var q=getQueue();
-  if(q.length===0){ if(manual) toast("✅ Rien à synchroniser"); return; }
+  if(q.length===0){ if(manual) toast("✅ Rien à synchroniser"); try{ _flushDossiers(); }catch(e){} return; }
   if(!navigator.onLine){ if(manual) toast("📴 Pas de réseau — réessayez plus tard"); return; }
   if(!APP.auth) return;
-  syncing=true; if(manual) toast("🔄 Synchronisation...");
-  // Envoyer par petits lots (JSONP passe par l'URL, limitee en longueur)
-  syncLot(q.slice(), 0, manual);
+  syncing=true;
+  var total=q.length;
+  _syncLoaderShow("Envoi des prestations… (0/"+total+")");
+  syncLot(q.slice(), 0, manual, total);
+  try{ _flushDossiers(); }catch(e){}   // envoyer aussi les dossiers en attente
 }
 
-function syncLot(tous, dejaSauves, manual){
+function syncLot(tous, dejaSauves, manual, total){
+  total=total||getQueue().length+dejaSauves;
   var restants=getQueue();
   if(restants.length===0){
-    syncing=false; updateSyncUI();
-    if(dejaSauves>0) toast("✅ "+dejaSauves+" dossier(s) synchronisé(s)");
+    syncing=false; updateSyncUI(); _syncLoaderDone();
+    if(dejaSauves>0) toast("✅ "+dejaSauves+" prestation(s) synchronisée(s)");
     else if(manual) toast("✅ Terminé");
     return;
   }
-  var LOT=5;  // 5 dossiers par appel (evite URL trop longue)
+  _syncLoaderSub("Envoi des prestations… ("+dejaSauves+"/"+total+")");
+  var LOT=5;  // 5 enregistrements par appel (evite URL trop longue)
   var lot=restants.slice(0, LOT);
   apiCall({ action:"submit", email:APP.auth.email, pin:APP.auth.pin, entries:JSON.stringify(lot) })
     .then(function(res){
-      if(res.error){ syncing=false; if(manual) toast("❌ "+res.error); return; }
+      if(res.error){ syncing=false; _syncLoaderDone(); if(manual) toast("❌ "+res.error); return; }
       var savedIds=res.saved||[];
       var remaining=getQueue().filter(function(e){ return savedIds.indexOf(e.id)<0; });
       setQueue(remaining); updateSyncUI();
       if(savedIds.length>0){
-        // Continuer avec le lot suivant
-        syncLot(tous, dejaSauves + savedIds.length, manual);
+        _syncLoaderSub("Envoi des prestations… ("+(dejaSauves+savedIds.length)+"/"+total+")");
+        syncLot(tous, dejaSauves + savedIds.length, manual, total);
       } else {
-        syncing=false;
+        syncing=false; _syncLoaderDone();
         if(manual) toast("⚠️ Rien n'a pu être synchronisé");
       }
     })
-    .catch(function(){ syncing=false; if(manual) toast("❌ Erreur réseau — données conservées",3500); });
+    .catch(function(){ syncing=false; _syncLoaderDone(); if(manual) toast("❌ Erreur réseau — données conservées",3500); });
 }
 
-window.addEventListener("online", function(){ $("offlineBanner").style.display="none"; trySync(false); try{ _flushDossiers(); }catch(e){} });
+window.addEventListener("online", function(){ $("offlineBanner").style.display="none"; trySync(false); });
 window.addEventListener("offline", function(){ $("offlineBanner").style.display="block"; });
 
 // ══════════════ TELECHARGEMENT PDF ══════════════
@@ -4426,14 +4436,24 @@ function _envoyerDossier(d){
     images:JSON.stringify(d.images||{}) });
 }
 
+var _flushing=false;
 function _flushDossiers(){
-  if(!navigator.onLine || !APP.auth) return;
+  if(_flushing || !navigator.onLine || !APP.auth) return;
+  _flushing=true;
   _idbAll().then(function(list){
-    (function next(i){ if(i>=list.length) return; var d=list[i];
-      _envoyerDossier(d).then(function(res){ if(res && !res.error){ _idbDel(d.id).then(function(){ next(i+1); }); } else next(i+1); })
-                        .catch(function(){ /* conserver, réessai plus tard */ });
+    if(!list.length){ _flushing=false; return; }
+    var total=list.length;
+    _syncLoaderShow("Envoi des dossiers… (0/"+total+")");
+    (function next(i){
+      if(i>=list.length){ _flushing=false; _syncLoaderDone(); return; }
+      _syncLoaderSub("Envoi des dossiers… ("+i+"/"+total+")");
+      var d=list[i];
+      _envoyerDossier(d).then(function(res){
+        if(res && res.ok && !res.error){ _idbDel(d.id).then(function(){ next(i+1); }); }
+        else { next(i+1); }   // garde en file (réponse d'erreur), on continue
+      }).catch(function(){ _flushing=false; _syncLoaderDone(); /* conserver, réessai plus tard */ });
     })(0);
-  }).catch(function(){});
+  }).catch(function(){ _flushing=false; });
 }
 
 </script>
