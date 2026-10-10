@@ -3990,8 +3990,10 @@ function installerApp(){
 // ══════════════════════════════════════════════════════════════════════════
 // DOSSIER MÉDICAL DU PATIENT  (carte de couverture + attestation + pièces)
 // ══════════════════════════════════════════════════════════════════════════
-var REGIMES_DOSSIER = { CLASSIQUE:1, BSF:1, CEC:1, NDONGO_DARA:1, SESAME:1 };
-var REGIMES_CARTE   = { CLASSIQUE:1, BSF:1, CEC:1, NDONGO_DARA:1 };     // carte de couverture (pas Sésame)
+var REGIMES_DOSSIER = { CLASSIQUE:1, BSF:1, CEC:1, NDONGO_DARA:1, SESAME:1, ENFANTS_5ANS:1 };
+var REGIMES_CARTE   = { CLASSIQUE:1, BSF:1, CEC:1, NDONGO_DARA:1 };     // carte de couverture (pas Sésame/Enfants)
+// Pièce justificative selon le régime : "cni" (Sésame), "carte" (classiques), "none" (Enfants <5 ans)
+function _dossierJustif(regime){ return regime==="SESAME" ? "cni" : (REGIMES_CARTE[regime] ? "carte" : "none"); }
 var TAUX_CSU_DOSSIER= { CLASSIQUE:0.8, NDONGO_DARA:0.8, CEC:1, BSF:1, SESAME:1 };
 var URL_SCANCARTE_PUB = "https://scancarte.sunucsu.sn/?code=";
 var ASSET_LOGO_ASCSU  = "data:image/png;base64,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";
@@ -4262,7 +4264,7 @@ function _demarrerDossier(ctx){
                 code:ctx.code, age:age, sexe:ctx.patient["Sexe (H/F)"]||ctx.patient["Sexe (M/F)"]||"" };
   ctx.id="DOS_"+uid();
   APP._dossierCtx=ctx;
-  APP._dossier_ticket=""; APP._dossier_carteRecto="";
+  APP._dossier_tickets=[]; APP._dossier_carteRecto="";
   _afficherDossier(ctx);
 }
 
@@ -4286,14 +4288,16 @@ function _afficherDossier(ctx){
     '<div id="dosDocPreview" style="font-size:12px;color:#666">Génération en cours…</div>';
   body.appendChild(secDoc);
 
-  // Ticket
-  body.appendChild(_blocPiece("ticket","🎫 Ticket de caisse","Photographiez le ticket.", false));
-  // Justificatif
-  if(est){
+  // Ticket(s) — un patient peut en avoir plusieurs
+  body.appendChild(_blocTickets());
+  // Pièce justificative selon le régime
+  var justif=_dossierJustif(ctx.regime);
+  if(justif==="cni"){
     body.appendChild(_blocCNIDossier());
-  } else {
+  } else if(justif==="carte"){
     body.appendChild(_blocPiece("carteRecto","🪪 Carte de couverture (physique, recto)","Photographiez la carte physique (recto) sur place — l'import n'est pas autorisé.", true, true));
   }
+  // (Enfants <5 ans : pas de justificatif physique)
 
   var err=document.createElement("div"); err.id="dossierErr"; err.className="err"; body.appendChild(err);
   var bFin=document.createElement("button"); bFin.className="btn"; bFin.type="button";
@@ -4314,6 +4318,39 @@ function _afficherDossier(ctx){
     if(APP._dossier_carteImg){ var d1=document.createElement("div"); d1.innerHTML='<div style="font-size:12px;color:#444;margin-top:4px">Carte de couverture ✓</div>'+_vignette(APP._dossier_carteImg); box.appendChild(d1); }
     var d2=document.createElement("div"); d2.innerHTML='<div style="font-size:12px;color:#444;margin-top:8px">Attestation de soins ✓</div>'+_vignette(APP._dossier_attImg); box.appendChild(d2);
   }).catch(function(){ var box=$("dosDocPreview"); if(box) box.textContent="⚠️ Impossible de générer les aperçus (ils seront régénérés)."; });
+}
+
+// Bloc tickets : un patient peut avoir PLUSIEURS tickets (photo ou import).
+function _blocTickets(){
+  APP._dossier_tickets = APP._dossier_tickets || [];
+  var wrap=document.createElement("div");
+  wrap.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:10px";
+  wrap.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:4px">🎫 Ticket(s) de caisse</div>'+
+                 '<div style="font-size:12px;color:#777;margin-bottom:8px">Vous pouvez en ajouter plusieurs.</div>';
+  var bCam=document.createElement("button"); bCam.type="button"; bCam.className="btn"; bCam.textContent="📷 Photographier un ticket"; bCam.style.cssText="width:100%";
+  var bImp=document.createElement("button"); bImp.type="button"; bImp.className="btn secondary"; bImp.textContent="🖼️ Importer un ticket"; bImp.style.cssText="width:100%;margin-top:8px";
+  var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.style.display="none";
+  var liste=document.createElement("div"); liste.id="dosTicketsListe"; liste.style.cssText="margin-top:8px";
+  function render(){
+    liste.innerHTML="";
+    (APP._dossier_tickets||[]).forEach(function(b64,i){
+      var row=document.createElement("div"); row.style.cssText="margin-top:8px;border-top:1px dashed #eee;padding-top:6px";
+      var head=document.createElement("div"); head.style.cssText="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--green)";
+      head.innerHTML="<span>✓ Ticket "+(i+1)+"</span>";
+      var del=document.createElement("button"); del.type="button"; del.className="btn secondary"; del.textContent="✖ Retirer"; del.style.cssText="width:auto;font-size:11px;padding:4px 8px;margin:0";
+      del.onclick=function(){ APP._dossier_tickets.splice(i,1); render(); };
+      head.appendChild(del); row.appendChild(head);
+      var img=document.createElement("div"); img.innerHTML=_vignette(b64); row.appendChild(img);
+      liste.appendChild(row);
+    });
+  }
+  function add(b64){ APP._dossier_tickets.push(b64); render(); }
+  bCam.onclick=function(){ _cameraUneImage({ titre:"Ticket de caisse" }, function(b64){ add(b64); }); };
+  bImp.onclick=function(){ fin.click(); };
+  fin.addEventListener("change", function(){ var f=fin.files&&fin.files[0]; if(!f) return; _imageVersBase64(f, 1600, function(b64){ add(b64); fin.value=""; }); });
+  wrap.appendChild(bCam); wrap.appendChild(bImp); wrap.appendChild(fin); wrap.appendChild(liste);
+  render();
+  return wrap;
 }
 
 // Bloc capture d'une pièce (ticket / carte physique). cameraOnly=true : pas d'import (photo prise sur place).
@@ -4381,10 +4418,12 @@ function _blocCNIDossier(){
 
 function _terminerDossier(){
   var ctx=APP._dossierCtx; if(!ctx) return;
-  var err=$("dossierErr"); err.textContent="";
-  if(!APP._dossier_ticket){ err.textContent="Ajoutez d'abord la photo du ticket."; return; }
-  if(ctx.regime==="SESAME"){ if(!(APP._cni_recto && APP._cni_verso)){ err.textContent="Ajoutez la CNI (recto + verso)."; return; } }
-  else { if(!APP._dossier_carteRecto){ err.textContent="Ajoutez la photo de la carte physique (recto)."; return; } }
+  var err=$("dossierErr"); err.style.color=""; err.textContent="";
+  var tickets=APP._dossier_tickets||[];
+  if(tickets.length===0){ err.textContent="Ajoutez au moins une photo de ticket."; return; }
+  var justif=_dossierJustif(ctx.regime);
+  if(justif==="cni"){ if(!(APP._cni_recto && APP._cni_verso)){ err.textContent="Ajoutez la CNI (recto + verso)."; return; } }
+  else if(justif==="carte"){ if(!APP._dossier_carteRecto){ err.textContent="Ajoutez la photo de la carte physique (recto)."; return; } }
 
   var pCarte, pAtt;
   if(APP._dossier_carteImg!==undefined && APP._dossier_attImg){ pCarte=Promise.resolve(APP._dossier_carteImg); pAtt=Promise.resolve(APP._dossier_attImg); }
@@ -4392,7 +4431,7 @@ function _terminerDossier(){
 
   err.textContent="Enregistrement du dossier…";
   Promise.all([pCarte, pAtt]).then(function(r){
-    var images={ carte:r[0]||"", attestation:r[1]||"", ticket:APP._dossier_ticket||"",
+    var images={ carte:r[0]||"", attestation:r[1]||"", tickets:(APP._dossier_tickets||[]).slice(),
                  carteRecto:APP._dossier_carteRecto||"", cniRecto:(ctx.regime==="SESAME"?APP._cni_recto:"")||"",
                  cniVerso:(ctx.regime==="SESAME"?APP._cni_verso:"")||"" };
     var d={ id:ctx.id, regime:ctx.regime, poste:ctx.poste, patient:ctx.patient, attInfo:ctx.attInfo, images:images, cree:Date.now() };
@@ -4412,7 +4451,7 @@ function _terminerDossier(){
 }
 
 function _finDossier(ctx){
-  APP._dossierCtx=null; APP._dossier_ticket=""; APP._dossier_carteRecto="";
+  APP._dossierCtx=null; APP._dossier_tickets=[]; APP._dossier_carteRecto="";
   APP._dossier_carteImg=undefined; APP._dossier_attImg="";
   if(ctx.closeAfter) showScreen("screenHome"); else openForm(ctx.regime, true);
 }
