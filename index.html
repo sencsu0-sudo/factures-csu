@@ -4345,7 +4345,7 @@ function _blocTickets(){
                  '<div style="font-size:12px;color:#777;margin-bottom:8px">Vous pouvez en ajouter plusieurs.</div>';
   var bCam=document.createElement("button"); bCam.type="button"; bCam.className="btn"; bCam.textContent="📷 Photographier un ticket"; bCam.style.cssText="width:100%";
   var bImp=document.createElement("button"); bImp.type="button"; bImp.className="btn secondary"; bImp.textContent="🖼️ Importer un ticket"; bImp.style.cssText="width:100%;margin-top:8px";
-  var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.style.display="none";
+  var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.multiple=true; fin.style.display="none";
   var liste=document.createElement("div"); liste.id="dosTicketsListe"; liste.style.cssText="margin-top:8px";
   function render(){
     liste.innerHTML="";
@@ -4363,7 +4363,10 @@ function _blocTickets(){
   function add(b64){ APP._dossier_tickets.push(b64); render(); }
   bCam.onclick=function(){ _cameraUneImage({ titre:"Ticket de caisse" }, function(b64){ add(b64); }); };
   bImp.onclick=function(){ fin.click(); };
-  fin.addEventListener("change", function(){ var f=fin.files&&fin.files[0]; if(!f) return; _imageVersBase64(f, 1600, function(b64){ add(b64); fin.value=""; }); });
+  fin.addEventListener("change", function(){
+    var arr=fin.files? Array.prototype.slice.call(fin.files):[]; if(!arr.length) return;
+    (function next(i){ if(i>=arr.length){ fin.value=""; return; } _imageVersBase64(arr[i], 1600, function(b64){ add(b64); next(i+1); }); })(0);
+  });
   wrap.appendChild(bCam); wrap.appendChild(bImp); wrap.appendChild(fin); wrap.appendChild(liste);
   render();
   return wrap;
