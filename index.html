@@ -4787,24 +4787,68 @@ function _prefillEdition(B){
   var bv=$("btnValiderPatient"); if(bv) bv.textContent="💾 Enregistrer les modifications";
 }
 
+// Reconstruit les données de l'attestation (lignes + totaux) à partir des données modifiées.
+function _docsAttestation(regime, patient, actes, acteFields, datePrise){
+  var code=_codePatient(regime, patient);
+  var age=""; try{ var a=_ageDepuis(patient["Date de naissance"]||"", datePrise); if(a!=null && !isNaN(a)) age=a; }catch(e){}
+  var taux=TAUX_CSU_DOSSIER[regime]||1;
+  var af=acteFields||[];
+  var fQ=af.filter(function(f){return f.qte;})[0], fPU=af.filter(function(f){return f.pu;})[0],
+      fMT=af.filter(function(f){return f.montant;})[0], fPR=af.filter(function(f){return f.list==="prestations";})[0];
+  var dateAff=(patient["Date de prise en charge"]||datePrise||"");
+  var lignes, attTotaux=null;
+  if(regime==="ENFANTS_5ANS"){
+    var forfait=parseFloat(String(patient["Montant Total"]||"").replace(/[^\d.]/g,""))||1400;
+    lignes=(actes||[]).map(function(a){ return { date:dateAff, nature:fPR?(a[fPR.name]||""):"", paye:"—", facture:"—" }; }).filter(function(L){ return L.nature; });
+    if(!lignes.length) lignes=[{ date:dateAff, nature:"Forfait prise en charge (moins de 5 ans)", paye:"—", facture:"—" }];
+    attTotaux={ paye:0, facture:forfait };
+  } else {
+    lignes=(actes||[]).map(function(a){
+      var q=fQ?parseFloat(a[fQ.name]||"0"):0, pu=fPU?parseFloat(a[fPU.name]||"0"):0;
+      var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0); if(isNaN(brut)) brut=0;
+      var net=Math.round(brut*taux);
+      return { date:dateAff, nature:fPR?(a[fPR.name]||""):"", paye:Math.round(brut-net), facture:net };
+    });
+  }
+  var attInfo={ assureur:"SEN-CSU", numero:_prochainNumeroAttestation(),
+                prenoms:patient["Prénom(s)"]||"", nom:patient["Nom"]||"", code:code, age:age,
+                sexe:patient["Sexe (H/F)"]||patient["Sexe (M/F)"]||"" };
+  return { attInfo:attInfo, lignes:lignes, attTotaux:attTotaux, code:code };
+}
+
 function _enregistrerModification(patient, actes, poste){
   if(!navigator.onLine){ $("formErr").textContent="📴 Connexion requise pour enregistrer la modification."; return; }
-  var ef=APP._editFacture||{};
+  var ef=APP._editFacture||{}, regime=APP.currentRegime;
+  var acteFields=(APP._csuActeFields||[]).slice();
   var entries=actes.map(function(acte){
     var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; });
     Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
-    return { id:uid(), regime:APP.currentRegime, poste:poste, data:data };
+    return { id:uid(), regime:regime, poste:poste, data:data };
   });
+  function finir(){
+    APP._editMode=false; APP._editFacture=null;
+    var bv=$("btnValiderPatient"); if(bv) bv.textContent="💾 Valider le patient";
+    if(ef.regime) ouvrirMoisFacture(ef.regime, ef.moisKey, ef.label); else showScreen("screenHome");
+  }
   showLoader("Enregistrement des modifications…");
   apiCall({ action:"facture_modifier", email:APP.auth.email, pin:APP.auth.pin,
-            regime:APP.currentRegime, ids:JSON.stringify(ef.ids||[]), entries:JSON.stringify(entries) })
+            regime:regime, ids:JSON.stringify(ef.ids||[]), entries:JSON.stringify(entries) })
     .then(function(res){
-      hideLoader();
-      if(res.error){ $("formErr").textContent="❌ "+res.error; return; }
-      toast("✅ Facture modifiée");
-      APP._editMode=false; APP._editFacture=null;
-      var bv=$("btnValiderPatient"); if(bv) bv.textContent="💾 Valider le patient";
-      if(ef.regime) ouvrirMoisFacture(ef.regime, ef.moisKey, ef.label); else showScreen("screenHome");
+      if(res.error){ hideLoader(); $("formErr").textContent="❌ "+res.error; return; }
+      // Régénérer l'attestation (régimes à dossier) et la remplacer sur Drive (photos conservées)
+      if(REGIMES_DOSSIER[regime]){
+        showLoader("Mise à jour de l'attestation…");
+        var d=_docsAttestation(regime, patient, actes, acteFields, patient["Date de prise en charge"]||"");
+        _genAttestation(d.attInfo, d.lignes, d.attTotaux).then(function(att){
+          return apiCall({ action:"dossier_maj_docs", email:APP.auth.email, pin:APP.auth.pin, regime:regime,
+            poste:poste||APP.user.poste||"", nom:patient["Nom"]||"", prenom:patient["Prénom(s)"]||"",
+            code:d.code||"", date:(patient["Date de prise en charge"]||""), attestation:att });
+        }).then(function(r){
+          hideLoader();
+          toast((r && r.ok && !r.error) ? "✅ Facture + attestation mises à jour" : "✅ Facture modifiée (attestation non mise à jour)");
+          finir();
+        }).catch(function(){ hideLoader(); toast("✅ Facture modifiée (attestation non mise à jour)"); finir(); });
+      } else { hideLoader(); toast("✅ Facture modifiée"); finir(); }
     })
     .catch(function(){ hideLoader(); $("formErr").textContent="❌ Erreur réseau — modification non enregistrée."; });
 }
