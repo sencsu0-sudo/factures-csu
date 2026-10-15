@@ -136,8 +136,25 @@
   <div id="icpModeCSU" style="display:none">
     <div class="form-head"><button class="back" onclick="retourModeChoice()">←</button>
       <div class="form-title">🏥 Bénéficiaire CSU</div></div>
-    <div class="grid" id="regimeGrid"></div>
-    <button class="btn secondary" onclick="showPDFScreen()" style="margin-top:14px">📄 Télécharger ma liste (PDF)</button>
+    <!-- Onglets -->
+    <div style="display:flex;gap:8px;margin:4px 0 14px">
+      <button class="btn" id="tabFacturation" onclick="csuTab('fact')" style="flex:1">🧾 Facturation</button>
+      <button class="btn secondary" id="tabMesFactures" onclick="csuTab('mes')" style="flex:1">📋 Mes factures</button>
+    </div>
+    <!-- Onglet Facturation -->
+    <div id="csuPanelFact">
+      <div class="grid" id="regimeGrid"></div>
+      <button class="btn secondary" onclick="showPDFScreen()" style="margin-top:14px">📄 Télécharger ma facture (PDF)</button>
+    </div>
+    <!-- Onglet Mes factures -->
+    <div id="csuPanelMes" style="display:none">
+      <label>Régime</label>
+      <select id="mfRegime" onchange="mfCharger()"></select>
+      <label style="margin-top:8px">Année</label>
+      <select id="mfAnnee" onchange="mfCharger()"></select>
+      <div id="mfMsg" style="font-size:13px;color:#777;margin-top:10px"></div>
+      <div id="mfMois" style="margin-top:10px"></div>
+    </div>
   </div>
 
   <!-- Mode Hors CSU -->
@@ -275,7 +292,7 @@
 <div class="screen" id="screenPDF">
   <div class="form-head">
     <button class="back" onclick="showScreen('screenHome')">←</button>
-    <div class="form-title">📄 Télécharger ma liste</div>
+    <div class="form-title">📄 Télécharger ma facture</div>
   </div>
   <div class="form-box">
     <label>Régime</label>
@@ -291,6 +308,24 @@
       ⚠️ La génération du PDF nécessite une connexion internet.
     </p>
   </div>
+</div>
+
+<!-- MES FACTURES — LISTE DES BÉNÉFICIAIRES D'UN MOIS -->
+<div class="screen" id="screenFactureMois">
+  <div class="form-head">
+    <button class="back" onclick="showScreen('screenHome')">←</button>
+    <div class="form-title" id="fmTitre">📋 Factures du mois</div>
+  </div>
+  <div class="form-box"><div id="fmBody"></div></div>
+</div>
+
+<!-- MES FACTURES — CONSULTER LES PRESTATIONS D'UN BÉNÉFICIAIRE -->
+<div class="screen" id="screenFactureConsult">
+  <div class="form-head">
+    <button class="back" id="fcBack" onclick="_mfRetourMois()">←</button>
+    <div class="form-title" id="fcTitre">👤 Prestations</div>
+  </div>
+  <div class="form-box"><div id="fcBody"></div></div>
 </div>
 
 <!-- DOSSIER MÉDICAL DU PATIENT -->
@@ -2678,6 +2713,7 @@ function choisirMode(mode){
   $("icpModeChoice").style.display="none";
   $("icpModeCSU").style.display = (mode==="csu")?"block":"none";
   $("icpModeHC").style.display = (mode==="csu")?"none":"block";
+  if(mode==="csu"){ try{ csuTab("fact"); }catch(e){} }
   // Empiler un état pour que le bouton retour revienne au choix de mode
   _pushEtat({ type:"mode", mode:mode });
 }
@@ -4057,14 +4093,18 @@ function _nombreEnLettres(n){
   return parts.join(" ").trim();
 }
 
-// ── CARTE DE COUVERTURE SANTÉ (PNG dataURL) ──
+// ── CARTE DE COUVERTURE SANTÉ (+ infos complémentaires en dessous) (PNG dataURL) ──
 function _genCarte(info){
   return Promise.all([ _chargerImg(ASSET_LOGO_ASCSU), _chargerImg(info.photo||"") ]).then(function(imgs){
-    var logo=imgs[0], photo=imgs[1], W=1000, H=560;
+    var logo=imgs[0], photo=imgs[1], W=1000, cardH=560;
+    var sup=info.infosSup||[];
+    var panelH = sup.length ? (56 + sup.length*36 + 16) : 0;
+    var H=cardH+panelH;
     var c=document.createElement("canvas"); c.width=W; c.height=H; var ctx=c.getContext("2d");
     ctx.textBaseline="top";
     ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
-    ctx.strokeStyle="#dcdcdc"; ctx.lineWidth=2; ctx.strokeRect(2,2,W-4,H-4);
+    // ----- CARTE (bloc du haut) -----
+    ctx.strokeStyle="#dcdcdc"; ctx.lineWidth=2; ctx.strokeRect(2,2,W-4,cardH-4);
     _drapeau(ctx, W/2-55, 22, 110, 72);
     ctx.fillStyle=_COL.navy; ctx.font="bold 40px Arial"; ctx.textAlign="center";
     ctx.fillText("CARTE DE COUVERTURE SANTE", W/2, 112);
@@ -4085,12 +4125,30 @@ function _genCarte(info){
     var qurl=_qrDataURL(URL_SCANCARTE_PUB+encodeURIComponent(info.code||""),150);
     return _chargerImg(qurl).then(function(qimg){
       if(qimg) ctx.drawImage(qimg, W-200, 205, 150, 150);
-      if(logo){ var lw=226, lh=logo.height*(lw/logo.width); ctx.drawImage(logo, W-lw-28, H-lh-46, lw, lh); }
-      var bh=32, by=H-bh, bw=W/3;
+      if(logo){ var lw=226, lh=logo.height*(lw/logo.width); ctx.drawImage(logo, W-lw-28, cardH-lh-46, lw, lh); }
+      var bh=32, by=cardH-bh, bw=W/3;
       ctx.fillStyle=_COL.green;  ctx.fillRect(0,by,bw,bh);
       ctx.fillStyle=_COL.yellow; ctx.fillRect(bw,by,bw,bh);
       ctx.fillStyle=_COL.red;    ctx.fillRect(2*bw,by,bw,bh);
       _etoile(ctx,W/2,by+bh/2,10,_COL.green);
+      // ----- INFOS COMPLÉMENTAIRES (bloc du bas) -----
+      if(sup.length){
+        var y0=cardH+16;
+        ctx.fillStyle=_COL.navy; ctx.font="bold 24px Arial"; ctx.textAlign="left";
+        ctx.fillText("Informations complémentaires", 40, y0);
+        ctx.strokeStyle="#cfe3d6"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(40,y0+34); ctx.lineTo(W-40,y0+34); ctx.stroke();
+        var ry=y0+50;
+        sup.forEach(function(it,i){
+          var y=ry+i*36;
+          ctx.fillStyle="#555"; ctx.font="bold 20px Arial"; ctx.fillText(it[0]+" :", 60, y);
+          var lw2=ctx.measureText(it[0]+" :").width;
+          ctx.fillStyle=_COL.dark; ctx.font="20px Arial";
+          var v=String(it[1]==null?"":it[1]); var maxw=(W-60)-(60+lw2+8);
+          while(ctx.measureText(v).width>maxw && v.length>3){ v=v.slice(0,-2); }
+          if(v!==String(it[1])) v=v+"…";
+          ctx.fillText(v, 60+lw2+8, y);
+        });
+      }
       return c.toDataURL("image/jpeg",0.9);
     });
   });
@@ -4250,6 +4308,20 @@ function _demarrerDossier(ctx){
   var age=""; try{ var _a=_ageDepuis(naissance, ctx.datePrise); if(_a!==null && _a!==undefined && !isNaN(_a)) age=_a; }catch(e){}
   ctx.cardInfo={ nom:ctx.patient["Nom"]||b.nom||"", prenoms:ctx.patient["Prénom(s)"]||b.prenom||"",
                  code:ctx.code, photo:(b&&b.photo)?b.photo:"" };
+  // Infos complémentaires affichées SOUS la carte (non imprimées sur la carte elle-même)
+  var sup=[]; function _sup(l,v){ if(v!==undefined && v!==null && String(v).trim()!=="") sup.push([l,String(v).trim()]); }
+  var _tx=(b.taux!=null && b.taux!=="") ? (String(b.taux).indexOf("%")>=0 ? String(b.taux) : (b.taux+"%")) : "";
+  _sup("N° CNI", b.cni || ctx.patient["N° Matricule / CNI"] || ctx.patient["N° CNI"] || "");
+  _sup("Date de naissance", b.naissanceFR || ctx.patient["Date de naissance"] || "");
+  _sup("Sexe", b.sexeLibelle || ctx.patient["Sexe (H/F)"] || ctx.patient["Sexe (M/F)"] || "");
+  _sup("Lieu de naissance", b.lieuNaissance);
+  _sup("N° Téléphone", b.telephone || ctx.patient["N° Téléphone"] || "");
+  _sup("Adresse", b.adresse);
+  _sup("Régime", b.regime);
+  _sup("Taux de prise en charge", _tx);
+  _sup("Période de couverture", (b.dateDebut && b.dateFin) ? (b.dateDebut+"  →  "+b.dateFin) : "");
+  _sup("Jours restants", (b.joursRestants!=null && b.joursRestants!=="") ? (b.joursRestants+" jour(s)") : "");
+  ctx.cardInfo.infosSup=sup;
   // lignes attestation
   var taux=TAUX_CSU_DOSSIER[ctx.regime]||1;
   var fQ=(ctx.acteFields||[]).filter(function(f){return f.qte;})[0];
@@ -4495,6 +4567,129 @@ function _envoyerDossier(d){
 }
 
 var _flushing=false;
+// ══════════════════════════════════════════════════════════════════════════
+// MES FACTURES — onglets, liste des mois, bénéficiaires par date, consulter
+// ══════════════════════════════════════════════════════════════════════════
+function csuTab(which){
+  var fact=(which!=="mes");
+  var pf=$("csuPanelFact"), pm=$("csuPanelMes");
+  if(pf) pf.style.display=fact?"":"none";
+  if(pm) pm.style.display=fact?"none":"";
+  var tf=$("tabFacturation"), tm=$("tabMesFactures");
+  if(tf) tf.className="btn"+(fact?"":" secondary");
+  if(tm) tm.className="btn"+(fact?" secondary":"");
+  if(!fact){ if(!APP._mfInit){ mfInit(); APP._mfInit=true; } mfCharger(); }
+}
+
+function mfInit(){
+  var selR=$("mfRegime"); if(!selR) return; selR.innerHTML="";
+  var ordre=["ENFANTS_5ANS","CLASSIQUE","SESAME","NDONGO_DARA","BSF","CEC"];
+  var cles=ordre.filter(function(k){ return APP.regimes[k]; });
+  Object.keys(APP.regimes||{}).forEach(function(k){ if(cles.indexOf(k)<0 && !/CESAR|DIALYSE|HEMO/.test(k)) cles.push(k); });
+  cles.forEach(function(k){ var o=document.createElement("option"); o.value=k; o.textContent=(APP.regimes[k]&&APP.regimes[k].titre)||k; selR.appendChild(o); });
+  selR.value = APP.regimes["ENFANTS_5ANS"] ? "ENFANTS_5ANS" : (cles[0]||"");
+  var selA=$("mfAnnee"); selA.innerHTML=""; var an=new Date().getFullYear();
+  for(var y=an; y>=an-3; y--){ var o=document.createElement("option"); o.value=y; o.textContent=y; selA.appendChild(o); }
+  selA.value=an;
+}
+
+function mfCharger(){
+  var selR=$("mfRegime"); if(!selR || !selR.value) return;
+  if(!navigator.onLine){ $("mfMois").innerHTML=""; $("mfMsg").textContent="📴 « Mes factures » nécessite une connexion internet."; return; }
+  $("mfMsg").textContent="Chargement…"; $("mfMois").innerHTML="";
+  var regime=selR.value, annee=$("mfAnnee").value;
+  apiCall({ action:"factures_mois", email:APP.auth.email, pin:APP.auth.pin, regime:regime, annee:annee })
+    .then(function(res){
+      if(res.error){ $("mfMsg").textContent="❌ "+res.error; return; }
+      $("mfMsg").textContent=""; _mfRenderMois(regime, res.mois||[]);
+    }).catch(function(){ $("mfMsg").textContent="❌ Erreur réseau."; });
+}
+
+function _mfRenderMois(regime, mois){
+  var box=$("mfMois"); box.innerHTML="";
+  var aucun=mois.every(function(m){ return m.count===0; });
+  if(aucun){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture enregistrée pour cette année."; box.appendChild(e); }
+  mois.forEach(function(m){
+    var actif=m.count>0;
+    var d=document.createElement("div");
+    d.style.cssText="border:1px solid "+(actif?"#cfe3d6":"#eee")+";border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;"+(actif?"background:#f4faf6;cursor:pointer":"opacity:.5");
+    d.innerHTML='<div><div style="font-weight:700;font-size:15px">'+m.label+'</div>'+
+      '<div style="font-size:12px;color:#667;margin-top:2px">'+(actif? (m.count+" facture(s)") : "Aucune facture")+'</div></div>'+
+      (actif? '<div style="text-align:right"><div style="font-weight:800;color:var(--green);font-size:15px">'+_fmtF(m.montant)+' F</div><div style="font-size:11px;color:#999">ouvrir ▸</div></div>' : '');
+    if(actif){ d.onclick=function(){ ouvrirMoisFacture(regime, m.key, m.label); }; }
+    box.appendChild(d);
+  });
+}
+
+function ouvrirMoisFacture(regime, moisKey, label){
+  if(!navigator.onLine){ toast("📴 Connexion requise."); return; }
+  showLoader("Chargement…", label);
+  apiCall({ action:"factures_liste", email:APP.auth.email, pin:APP.auth.pin, regime:regime, moisKey:moisKey })
+    .then(function(res){
+      hideLoader();
+      if(res.error){ toast("❌ "+res.error); return; }
+      APP._mf={ regime:regime, moisKey:moisKey, label:label, dates:res.dates||[], total:res.total||{count:0,montant:0} };
+      _mfRenderBenefs();
+    }).catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
+}
+
+function _mfRenderBenefs(){
+  var mf=APP._mf; if(!mf) return;
+  $("fmTitre").textContent="📋 "+((APP.regimes[mf.regime]&&APP.regimes[mf.regime].titre)||mf.regime)+" — "+mf.label;
+  var body=$("fmBody"); body.innerHTML="";
+  var head=document.createElement("div"); head.style.cssText="font-size:13px;color:#555;margin-bottom:10px";
+  head.innerHTML="<b>"+(mf.total.count||0)+"</b> facture(s) · Montant total : <b style='color:var(--green)'>"+_fmtF(mf.total.montant||0)+" F</b>";
+  body.appendChild(head);
+  if(!mf.dates.length){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture pour ce mois."; body.appendChild(e); }
+  mf.dates.forEach(function(D, di){
+    var sec=document.createElement("div"); sec.style.cssText="margin-bottom:14px";
+    var t=document.createElement("div"); t.style.cssText="font-weight:800;color:var(--green);font-size:14px;margin:6px 0 8px;border-bottom:1px solid #eee;padding-bottom:4px";
+    t.textContent="📅 "+D.date+"  ("+D.benefs.length+")"; sec.appendChild(t);
+    D.benefs.forEach(function(B, bi){
+      var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:8px";
+      c.innerHTML='<div style="font-weight:700">'+(((B.prenom||"")+" "+(B.nom||"")).trim()||"—")+'</div>'+
+        '<div style="font-size:12px;color:#667;margin:2px 0 8px">'+(B.code? ("Code : "+B.code+" · ") : "")+B.prestations.length+' prestation(s) · <b>'+_fmtF(B.montantFacture)+' F</b></div>';
+      var row=document.createElement("div"); row.style.cssText="display:flex;gap:6px;flex-wrap:wrap";
+      var bC=document.createElement("button"); bC.type="button"; bC.className="btn"; bC.textContent="👁️ Consulter"; bC.style.cssText="flex:1;min-width:110px;font-size:13px;padding:8px";
+      bC.onclick=(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi);
+      var bM=document.createElement("button"); bM.type="button"; bM.className="btn secondary"; bM.textContent="✏️ Modifier"; bM.style.cssText="flex:1;min-width:100px;font-size:13px;padding:8px";
+      bM.onclick=function(){ toast("✏️ Modification — bientôt (étape 2)."); };
+      var bS=document.createElement("button"); bS.type="button"; bS.className="btn secondary"; bS.textContent="🗑️ Supprimer"; bS.style.cssText="flex:1;min-width:100px;font-size:13px;padding:8px;color:#c0392b";
+      bS.onclick=function(){ toast("🗑️ Suppression — bientôt (étape 2)."); };
+      row.appendChild(bC); row.appendChild(bM); row.appendChild(bS); c.appendChild(row);
+      sec.appendChild(c);
+    });
+    body.appendChild(sec);
+  });
+  showScreen("screenFactureMois");
+}
+
+function consulterBenef(di, bi){
+  var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; if(!D) return; var B=D.benefs[bi]; if(!B) return;
+  APP._mfConsult={ di:di, bi:bi };
+  $("fcTitre").textContent="👤 "+(((B.prenom||"")+" "+(B.nom||"")).trim()||"Bénéficiaire");
+  var body=$("fcBody"); body.innerHTML="";
+  var h=document.createElement("div"); h.style.cssText="font-size:13px;color:#555;margin-bottom:10px";
+  h.innerHTML=(B.code?("Code : <b>"+B.code+"</b><br>"):"")+"Date de prise en charge : <b>"+D.date+"</b><br>Montant facturé : <b style='color:var(--green)'>"+_fmtF(B.montantFacture)+" F</b>";
+  body.appendChild(h);
+  (B.prestations||[]).forEach(function(P){
+    var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px";
+    var info='<div style="font-weight:700;font-size:14px">'+(P.prestation||P.service||"—")+'</div>';
+    var sub=[]; if(P.service && P.prestation) sub.push(P.service);
+    if(P.qte) sub.push("Qté "+P.qte); if(P.pu) sub.push("PU "+_fmtF(P.pu));
+    if(sub.length) info+='<div style="font-size:12px;color:#667;margin-top:2px">'+sub.join(" · ")+'</div>';
+    info+='<div style="font-size:13px;color:var(--green);font-weight:700;margin-top:3px">'+(mf.regime==="ENFANTS_5ANS"? "—" : (_fmtF(P.montant)+" F"))+'</div>';
+    var left=document.createElement("div"); left.style.cssText="flex:1"; left.innerHTML=info;
+    var del=document.createElement("button"); del.type="button"; del.className="btn secondary"; del.textContent="✖"; del.title="Retirer cette prestation";
+    del.style.cssText="width:auto;font-size:15px;padding:6px 11px;margin:0;color:#c0392b";
+    del.onclick=function(){ toast("✖ Retirer — bientôt (étape 2)."); };
+    c.appendChild(left); c.appendChild(del); body.appendChild(c);
+  });
+  showScreen("screenFactureConsult");
+}
+
+function _mfRetourMois(){ _mfRenderBenefs(); }
+
 function _flushDossiers(){
   if(_flushing || !navigator.onLine || !APP.auth) return;
   _flushing=true;
