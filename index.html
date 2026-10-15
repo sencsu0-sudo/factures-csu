@@ -4677,8 +4677,8 @@ function _mfRenderBenefs(){
       function ic(txt, titre, bg, fn){ var b=document.createElement("button"); b.type="button"; b.textContent=txt; b.title=titre; b.onclick=fn;
         b.style.cssText="width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;line-height:34px;background:"+bg+";color:#fff"; return b; }
       acts.appendChild(ic("👁️","Consulter","#1a7a4a",(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi)));
-      acts.appendChild(ic("✏️","Modifier","#2471a3",function(){ toast("✏️ Modification — bientôt (étape 2)."); }));
-      acts.appendChild(ic("🗑️","Supprimer","#c0392b",function(){ toast("🗑️ Suppression — bientôt (étape 2)."); }));
+      acts.appendChild(ic("✏️","Modifier","#2471a3",function(){ toast("✏️ Modification — bientôt."); }));
+      acts.appendChild(ic("🗑️","Supprimer","#c0392b",(function(dd,bb){ return function(){ supprimerFacture(dd,bb); }; })(di,bi)));
       c.appendChild(left); c.appendChild(acts); body.appendChild(c);
     });
   });
@@ -4704,7 +4704,7 @@ function consulterBenef(di, bi){
     "Taux de couverture : <b>"+_tauxTexte(mf.regime)+"</b><br>"+
     "Part CSU : <b style='color:var(--green)'>"+_fmtF(totCSU)+" F</b> · Part patient : <b>"+_fmtF(totPat)+" F</b>";
   body.appendChild(h);
-  (B.prestations||[]).forEach(function(P){
+  (B.prestations||[]).forEach(function(P, pi){
     var csu=P.montant||0; var brut=(taux>0?csu/taux:csu); var pat=Math.round(brut-csu);
     var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px";
     var info='<div style="font-weight:700;font-size:13px">'+(P.prestation||P.service||"—")+'</div>';
@@ -4716,13 +4716,58 @@ function consulterBenef(di, bi){
     var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0"; left.innerHTML=info;
     var del=document.createElement("button"); del.type="button"; del.textContent="✖"; del.title="Retirer cette prestation";
     del.style.cssText="flex:0 0 auto;width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;background:#c0392b;color:#fff";
-    del.onclick=function(){ toast("✖ Retirer — bientôt (étape 2)."); };
+    del.onclick=(function(dd,bb,pp){ return function(){ retirerPrestation(dd,bb,pp); }; })(di,bi,pi);
     c.appendChild(left); c.appendChild(del); body.appendChild(c);
   });
   showScreen("screenFactureConsult");
 }
 
 function _mfRetourMois(){ _mfRenderBenefs(); }
+
+function _mfRecalcTotal(){
+  var mf=APP._mf; if(!mf) return; var c=0, m=0;
+  mf.dates.forEach(function(D){ D.benefs.forEach(function(B){ c++; m+=(B.montantFacture||0); }); });
+  mf.total={ count:c, montant:Math.round(m) };
+}
+
+function supprimerFacture(di, bi){
+  var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
+  var ids=(B.prestations||[]).map(function(p){ return p.id; }).filter(Boolean);
+  if(!ids.length){ toast("Impossible : prestations sans identifiant."); return; }
+  var nom=((B.prenom||"")+" "+(B.nom||"")).trim();
+  if(!confirm("Supprimer définitivement la facture de "+(nom||"ce bénéficiaire")+"\n("+ids.length+" prestation(s)) ?\nCette action est irréversible.")) return;
+  if(!navigator.onLine){ toast("📴 Connexion requise."); return; }
+  showLoader("Suppression…");
+  apiCall({ action:"lignes_supprimer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, ids:JSON.stringify(ids) })
+    .then(function(res){ hideLoader(); if(res.error){ toast("❌ "+res.error); return; }
+      toast("🗑️ Facture supprimée"); ouvrirMoisFacture(mf.regime, mf.moisKey, mf.label); })
+    .catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
+}
+
+function retirerPrestation(di, bi, pi){
+  var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
+  var P=B.prestations[pi]; if(!P) return;
+  if(!P.id){ toast("Impossible : ligne sans identifiant."); return; }
+  if(!confirm("Retirer la prestation « "+(P.prestation||P.service||"")+" » ?")) return;
+  if(!navigator.onLine){ toast("📴 Connexion requise."); return; }
+  showLoader("Suppression…");
+  apiCall({ action:"lignes_supprimer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, ids:JSON.stringify([P.id]) })
+    .then(function(res){ hideLoader(); if(res.error){ toast("❌ "+res.error); return; }
+      B.prestations.splice(pi,1);
+      B.montant=0; B.forfait=0;
+      B.prestations.forEach(function(p){ B.montant+=(p.montant||0); if((p.montant||0)>B.forfait) B.forfait=(p.montant||0); });
+      B.montantFacture=(mf.regime==="ENFANTS_5ANS")? B.forfait : B.montant;
+      toast("✖ Prestation retirée");
+      if(!B.prestations.length){
+        D.benefs.splice(bi,1);
+        if(!D.benefs.length){ var idx=mf.dates.indexOf(D); if(idx>=0) mf.dates.splice(idx,1); }
+        _mfRecalcTotal(); _mfRenderBenefs();   // retour à la liste du mois
+      } else {
+        _mfRecalcTotal(); consulterBenef(di, bi);
+      }
+    })
+    .catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
+}
 
 function _flushDossiers(){
   if(_flushing || !navigator.onLine || !APP.auth) return;
