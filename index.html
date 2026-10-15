@@ -4633,33 +4633,54 @@ function ouvrirMoisFacture(regime, moisKey, label){
     }).catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
 }
 
+function _tauxTexte(regime){ var t=_tauxCSUClient(regime); var csu=Math.round(t*100); return csu+"% CSU / "+(100-csu)+"% patient"; }
+
+function _mfTelechargerFacture(btn){
+  var mf=APP._mf; if(!mf) return;
+  if(!navigator.onLine){ toast("📴 Connexion requise pour le téléchargement."); return; }
+  if(btn){ btn.disabled=true; btn.textContent="⏳ Génération…"; }
+  apiCall({ action:"pdf", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, moisKey:mf.moisKey, format:"pdf" })
+    .then(function(res){
+      if(btn){ btn.disabled=false; btn.textContent="📄 Télécharger la facture"; }
+      if(res.error){ toast("❌ "+res.error); return; }
+      var files=(res.files||[]).filter(function(f){ return f.base64; });
+      if(files.length){ files.forEach(function(f){ telechargerBase64(f.base64, f.filename||"facture.pdf"); }); toast("✅ "+files.length+" fichier(s) téléchargé(s)"); }
+      else if(res.base64){ telechargerBase64(res.base64, res.filename||"facture.pdf"); toast("✅ Facture téléchargée"); }
+      else toast("❌ Réponse inattendue du serveur.");
+    }).catch(function(){ if(btn){ btn.disabled=false; btn.textContent="📄 Télécharger la facture"; } toast("❌ Erreur réseau."); });
+}
+
 function _mfRenderBenefs(){
   var mf=APP._mf; if(!mf) return;
   $("fmTitre").textContent="📋 "+((APP.regimes[mf.regime]&&APP.regimes[mf.regime].titre)||mf.regime)+" — "+mf.label;
   var body=$("fmBody"); body.innerHTML="";
-  var head=document.createElement("div"); head.style.cssText="font-size:13px;color:#555;margin-bottom:10px";
-  head.innerHTML="<b>"+(mf.total.count||0)+"</b> facture(s) · Montant total : <b style='color:var(--green)'>"+_fmtF(mf.total.montant||0)+" F</b>";
-  body.appendChild(head);
+  // Récap + taux + téléchargement
+  var head=document.createElement("div");
+  head.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:10px;padding:10px;margin-bottom:12px";
+  head.innerHTML="<div style='font-size:13px;color:#555'><b>"+(mf.total.count||0)+"</b> facture(s) · Total : <b style='color:var(--green)'>"+_fmtF(mf.total.montant||0)+" F</b></div>"+
+                 "<div style='font-size:12px;color:#777;margin-top:3px'>Taux de couverture : <b>"+_tauxTexte(mf.regime)+"</b></div>";
+  var bDl=document.createElement("button"); bDl.type="button"; bDl.className="btn"; bDl.textContent="📄 Télécharger la facture";
+  bDl.style.cssText="width:100%;margin-top:10px"; bDl.onclick=function(){ _mfTelechargerFacture(bDl); };
+  head.appendChild(bDl); body.appendChild(head);
+
   if(!mf.dates.length){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture pour ce mois."; body.appendChild(e); }
   mf.dates.forEach(function(D, di){
-    var sec=document.createElement("div"); sec.style.cssText="margin-bottom:14px";
-    var t=document.createElement("div"); t.style.cssText="font-weight:800;color:var(--green);font-size:14px;margin:6px 0 8px;border-bottom:1px solid #eee;padding-bottom:4px";
-    t.textContent="📅 "+D.date+"  ("+D.benefs.length+")"; sec.appendChild(t);
+    var t=document.createElement("div"); t.style.cssText="font-weight:800;color:var(--green);font-size:13px;margin:12px 0 6px;border-bottom:1px solid #eee;padding-bottom:3px";
+    t.textContent="📅 "+D.date+"  ("+D.benefs.length+")"; body.appendChild(t);
     D.benefs.forEach(function(B, bi){
-      var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:8px";
-      c.innerHTML='<div style="font-weight:700">'+(((B.prenom||"")+" "+(B.nom||"")).trim()||"—")+'</div>'+
-        '<div style="font-size:12px;color:#667;margin:2px 0 8px">'+(B.code? ("Code : "+B.code+" · ") : "")+B.prestations.length+' prestation(s) · <b>'+_fmtF(B.montantFacture)+' F</b></div>';
-      var row=document.createElement("div"); row.style.cssText="display:flex;gap:6px;flex-wrap:wrap";
-      var bC=document.createElement("button"); bC.type="button"; bC.className="btn"; bC.textContent="👁️ Consulter"; bC.style.cssText="flex:1;min-width:110px;font-size:13px;padding:8px";
-      bC.onclick=(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi);
-      var bM=document.createElement("button"); bM.type="button"; bM.className="btn secondary"; bM.textContent="✏️ Modifier"; bM.style.cssText="flex:1;min-width:100px;font-size:13px;padding:8px";
-      bM.onclick=function(){ toast("✏️ Modification — bientôt (étape 2)."); };
-      var bS=document.createElement("button"); bS.type="button"; bS.className="btn secondary"; bS.textContent="🗑️ Supprimer"; bS.style.cssText="flex:1;min-width:100px;font-size:13px;padding:8px;color:#c0392b";
-      bS.onclick=function(){ toast("🗑️ Suppression — bientôt (étape 2)."); };
-      row.appendChild(bC); row.appendChild(bM); row.appendChild(bS); c.appendChild(row);
-      sec.appendChild(c);
+      var c=document.createElement("div");
+      c.style.cssText="border:1px solid #e5e5e5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;gap:8px";
+      var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0";
+      left.innerHTML='<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(((B.prenom||"")+" "+(B.nom||"")).trim()||"—")+'</div>'+
+        '<div style="font-size:11px;color:#667;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(B.code?(B.code+" · "):"")+B.prestations.length+' prest. · <b>'+_fmtF(B.montantFacture)+' F</b></div>';
+      var acts=document.createElement("div"); acts.style.cssText="display:flex;gap:4px;flex:0 0 auto";
+      function ic(txt, titre, bg, fn){ var b=document.createElement("button"); b.type="button"; b.textContent=txt; b.title=titre; b.onclick=fn;
+        b.style.cssText="width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;line-height:34px;background:"+bg+";color:#fff"; return b; }
+      acts.appendChild(ic("👁️","Consulter","#1a7a4a",(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi)));
+      acts.appendChild(ic("✏️","Modifier","#2471a3",function(){ toast("✏️ Modification — bientôt (étape 2)."); }));
+      acts.appendChild(ic("🗑️","Supprimer","#c0392b",function(){ toast("🗑️ Suppression — bientôt (étape 2)."); }));
+      c.appendChild(left); c.appendChild(acts); body.appendChild(c);
     });
-    body.appendChild(sec);
   });
   showScreen("screenFactureMois");
 }
@@ -4667,21 +4688,34 @@ function _mfRenderBenefs(){
 function consulterBenef(di, bi){
   var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; if(!D) return; var B=D.benefs[bi]; if(!B) return;
   APP._mfConsult={ di:di, bi:bi };
+  var estEnfants=(mf.regime==="ENFANTS_5ANS");
+  var taux=_tauxCSUClient(mf.regime);
   $("fcTitre").textContent="👤 "+(((B.prenom||"")+" "+(B.nom||"")).trim()||"Bénéficiaire");
   var body=$("fcBody"); body.innerHTML="";
-  var h=document.createElement("div"); h.style.cssText="font-size:13px;color:#555;margin-bottom:10px";
-  h.innerHTML=(B.code?("Code : <b>"+B.code+"</b><br>"):"")+"Date de prise en charge : <b>"+D.date+"</b><br>Montant facturé : <b style='color:var(--green)'>"+_fmtF(B.montantFacture)+" F</b>";
+  // Totaux parts
+  var totCSU=0, totPat=0;
+  (B.prestations||[]).forEach(function(P){
+    var csu=P.montant||0; var brut=(taux>0?csu/taux:csu); totCSU+=csu; totPat+=Math.round(brut-csu);
+  });
+  if(estEnfants){ totCSU=B.montantFacture||0; totPat=0; }
+  var h=document.createElement("div"); h.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px;color:#555";
+  h.innerHTML=(B.code?("Code : <b>"+B.code+"</b><br>"):"")+
+    "Date de prise en charge : <b>"+D.date+"</b><br>"+
+    "Taux de couverture : <b>"+_tauxTexte(mf.regime)+"</b><br>"+
+    "Part CSU : <b style='color:var(--green)'>"+_fmtF(totCSU)+" F</b> · Part patient : <b>"+_fmtF(totPat)+" F</b>";
   body.appendChild(h);
   (B.prestations||[]).forEach(function(P){
-    var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px";
-    var info='<div style="font-weight:700;font-size:14px">'+(P.prestation||P.service||"—")+'</div>';
+    var csu=P.montant||0; var brut=(taux>0?csu/taux:csu); var pat=Math.round(brut-csu);
+    var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px";
+    var info='<div style="font-weight:700;font-size:13px">'+(P.prestation||P.service||"—")+'</div>';
     var sub=[]; if(P.service && P.prestation) sub.push(P.service);
     if(P.qte) sub.push("Qté "+P.qte); if(P.pu) sub.push("PU "+_fmtF(P.pu));
-    if(sub.length) info+='<div style="font-size:12px;color:#667;margin-top:2px">'+sub.join(" · ")+'</div>';
-    info+='<div style="font-size:13px;color:var(--green);font-weight:700;margin-top:3px">'+(mf.regime==="ENFANTS_5ANS"? "—" : (_fmtF(P.montant)+" F"))+'</div>';
-    var left=document.createElement("div"); left.style.cssText="flex:1"; left.innerHTML=info;
-    var del=document.createElement("button"); del.type="button"; del.className="btn secondary"; del.textContent="✖"; del.title="Retirer cette prestation";
-    del.style.cssText="width:auto;font-size:15px;padding:6px 11px;margin:0;color:#c0392b";
+    if(sub.length) info+='<div style="font-size:11px;color:#667;margin-top:2px">'+sub.join(" · ")+'</div>';
+    if(estEnfants){ info+='<div style="font-size:12px;color:#999;margin-top:3px">Inclus au forfait</div>'; }
+    else { info+='<div style="font-size:12px;margin-top:3px"><span style="color:var(--green);font-weight:700">CSU '+_fmtF(csu)+' F</span> · <span style="color:#555">Patient '+_fmtF(pat)+' F</span></div>'; }
+    var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0"; left.innerHTML=info;
+    var del=document.createElement("button"); del.type="button"; del.textContent="✖"; del.title="Retirer cette prestation";
+    del.style.cssText="flex:0 0 auto;width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;background:#c0392b;color:#fff";
     del.onclick=function(){ toast("✖ Retirer — bientôt (étape 2)."); };
     c.appendChild(left); c.appendChild(del); body.appendChild(c);
   });
