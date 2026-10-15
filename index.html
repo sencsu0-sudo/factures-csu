@@ -4633,7 +4633,7 @@ function ouvrirMoisFacture(regime, moisKey, label){
     }).catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
 }
 
-function _tauxTexte(regime){ var t=_tauxCSUClient(regime); var csu=Math.round(t*100); return csu+"% CSU / "+(100-csu)+"% patient"; }
+function _tauxTexte(regime){ return Math.round(_tauxCSUClient(regime)*100)+"%"; }
 
 function _mfTelechargerFacture(btn){
   var mf=APP._mf; if(!mf) return;
