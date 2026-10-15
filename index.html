@@ -3111,7 +3111,8 @@ function calculerAge(dateStr, dateRef){
   return age;
 }
 
-function openForm(regimeKey, keepAdmin){
+function openForm(regimeKey, keepAdmin, edition){
+  APP._editMode=!!edition;   // mode « Modifier » : pas d'assistant, pas de dossier
   APP.currentRegime=regimeKey; var regime=APP.regimes[regimeKey];
   $("formTitle").textContent=(regime.icone||"")+" "+regime.titre; $("formErr").textContent="";
   var box=$("formFields"), oldValues={};
@@ -3180,9 +3181,10 @@ function openForm(regimeKey, keepAdmin){
   $("formActesZone").style.display=regimeAActes?"block":"none";
   $("acteCsuErr").textContent=""; renderPanierCSU();
 
-  // Assistant par étapes (régimes à vérification de couverture) ou affichage normal
+  // Assistant par étapes (régimes à vérification de couverture) ou affichage normal.
+  // En mode « Modifier », on n'affiche NI l'assistant NI le dossier : juste le formulaire.
   _wizDemonter();
-  if(_estWizard(regimeKey)){
+  if(!edition && _estWizard(regimeKey)){
     APP._regimeAActes=regimeAActes;
     if(regimeKey==="SESAME"){ APP._cni_recto=""; APP._cni_verso=""; }
     else { APP._verifStatut=""; APP._verifMotif=""; APP._benef=null; }
@@ -3772,8 +3774,8 @@ function computeMontant(){
 }
 
 function saveEntry(closeAfter){
-  // Blocage facturation : régimes à vérification de couverture
-  if(REGIMES_VERIF[APP.currentRegime]){
+  // Blocage facturation : régimes à vérification de couverture (sauf en mode Modifier)
+  if(!APP._editMode && REGIMES_VERIF[APP.currentRegime]){
     if(APP._verifStatut==="invalide"){ $("formErr").textContent="⛔ Facturation bloquée : "+(APP._verifMotif||"carte non valide."); return; }
     if(APP._verifStatut!=="valide" && APP._verifStatut!=="manuel"){ $("formErr").textContent="Vérifiez d'abord le code d'immatriculation (ou choisissez « Saisir les infos »)."; return; }
   }
@@ -3831,6 +3833,10 @@ function saveEntry(closeAfter){
   } else { actes=[{}]; }
 
   var posteSel=$("fieldPoste"), poste=posteSel?posteSel.value:APP.user.poste;
+
+  // ── Mode MODIFIER : remplacer la facture existante (pas de file, pas de dossier) ──
+  if(APP._editMode){ _enregistrerModification(patient, actes, poste); return; }
+
   var q=getQueue();
   actes.forEach(function(acte){
     var data={};
@@ -4677,7 +4683,7 @@ function _mfRenderBenefs(){
       function ic(txt, titre, bg, fn){ var b=document.createElement("button"); b.type="button"; b.textContent=txt; b.title=titre; b.onclick=fn;
         b.style.cssText="width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;line-height:34px;background:"+bg+";color:#fff"; return b; }
       acts.appendChild(ic("👁️","Consulter","#1a7a4a",(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi)));
-      acts.appendChild(ic("✏️","Modifier","#2471a3",function(){ toast("✏️ Modification — bientôt."); }));
+      acts.appendChild(ic("✏️","Modifier","#2471a3",(function(dd,bb){ return function(){ modifierFacture(dd,bb); }; })(di,bi)));
       acts.appendChild(ic("🗑️","Supprimer","#c0392b",(function(dd,bb){ return function(){ supprimerFacture(dd,bb); }; })(di,bi)));
       c.appendChild(left); c.appendChild(acts); body.appendChild(c);
     });
@@ -4728,6 +4734,79 @@ function _mfRecalcTotal(){
   var mf=APP._mf; if(!mf) return; var c=0, m=0;
   mf.dates.forEach(function(D){ D.benefs.forEach(function(B){ c++; m+=(B.montantFacture||0); }); });
   mf.total={ count:c, montant:Math.round(m) };
+}
+
+// ── MODIFIER une facture : rouvrir le formulaire pré-rempli ──
+function _versISO(s){
+  var m=String(s||"").match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m) return m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2);
+  var m2=String(s||"").match(/^\d{4}-\d{2}-\d{2}/); return m2?m2[0]:"";
+}
+
+function modifierFacture(di, bi){
+  var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
+  if(!navigator.onLine){ toast("📴 Connexion requise pour modifier."); return; }
+  var ids=(B.prestations||[]).map(function(p){ return p.id; }).filter(Boolean);
+  APP._editFacture={ regime:mf.regime, moisKey:mf.moisKey, label:mf.label, ids:ids };
+  openForm(mf.regime, false, true);   // edition=true : formulaire seul, pas d'assistant
+  _prefillEdition(B);
+}
+
+function _prefillEdition(B){
+  var data=B.data||{};
+  var af=APP._csuActeFields||[];
+  var acteNames={}; af.forEach(function(f){ acteNames[f.name]=true; });
+  // Champs administratifs/médicaux hors acte (dans #formFields OU la zone médicale)
+  Object.keys(data).forEach(function(k){
+    if(acteNames[k]) return;   // champs d'acte : gérés par le panier
+    var sel='[data-field="'+String(k).replace(/"/g,'\\"')+'"]';
+    var el=$("formFields").querySelector(sel) || $("formActeInputs").querySelector(sel);
+    if(!el) return;
+    if(el.type==="date"){ var iso=_versISO(data[k]); if(iso) el.value=iso; }
+    else { el.value=data[k]; }
+    try{ el.dispatchEvent(new Event("change")); }catch(e){}
+  });
+  // Prestations -> panier
+  var fServ=af.filter(function(f){return f.list==="services";})[0];
+  var fPrest=af.filter(function(f){return f.list==="prestations";})[0];
+  var fQte=af.filter(function(f){return f.qte;})[0];
+  var fPU=af.filter(function(f){return f.pu;})[0];
+  var fMt=af.filter(function(f){return f.montant;})[0];
+  var taux=_tauxCSUClient(APP.currentRegime);
+  APP._csuPanier=(B.prestations||[]).map(function(P){
+    var acte={};
+    if(fServ) acte[fServ.name]=P.service||"";
+    if(fPrest) acte[fPrest.name]=P.prestation||"";
+    if(fQte) acte[fQte.name]=P.qte||"";
+    if(fPU) acte[fPU.name]=P.pu||"";
+    if(fMt){ var net=P.montant||0; acte[fMt.name]= (taux<1 ? Math.round(net/taux) : net); }
+    return acte;
+  });
+  try{ renderPanierCSU(); }catch(e){}
+  $("formTitle").textContent="✏️ Modifier — "+(((B.prenom||"")+" "+(B.nom||"")).trim()||"facture");
+  var bv=$("btnValiderPatient"); if(bv) bv.textContent="💾 Enregistrer les modifications";
+}
+
+function _enregistrerModification(patient, actes, poste){
+  if(!navigator.onLine){ $("formErr").textContent="📴 Connexion requise pour enregistrer la modification."; return; }
+  var ef=APP._editFacture||{};
+  var entries=actes.map(function(acte){
+    var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; });
+    Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
+    return { id:uid(), regime:APP.currentRegime, poste:poste, data:data };
+  });
+  showLoader("Enregistrement des modifications…");
+  apiCall({ action:"facture_modifier", email:APP.auth.email, pin:APP.auth.pin,
+            regime:APP.currentRegime, ids:JSON.stringify(ef.ids||[]), entries:JSON.stringify(entries) })
+    .then(function(res){
+      hideLoader();
+      if(res.error){ $("formErr").textContent="❌ "+res.error; return; }
+      toast("✅ Facture modifiée");
+      APP._editMode=false; APP._editFacture=null;
+      var bv=$("btnValiderPatient"); if(bv) bv.textContent="💾 Valider le patient";
+      if(ef.regime) ouvrirMoisFacture(ef.regime, ef.moisKey, ef.label); else showScreen("screenHome");
+    })
+    .catch(function(){ hideLoader(); $("formErr").textContent="❌ Erreur réseau — modification non enregistrée."; });
 }
 
 function supprimerFacture(di, bi){
