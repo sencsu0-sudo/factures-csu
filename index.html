@@ -4655,7 +4655,10 @@ function _mfRenderMois(regime, mois){
     var actif=m.count>0;
     var d=document.createElement("div");
     d.style.cssText="border:1px solid "+(actif?"#cfe3d6":"#eee")+";border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;"+(actif?"background:#f4faf6;cursor:pointer":"opacity:.5");
-    d.innerHTML='<div><div style="font-weight:700;font-size:15px">'+m.label+'</div>'+
+    var badge="";
+    if(m.statut==="Envoyé") badge=' <span style="font-size:10px;background:#1a7a4a;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">🔒 Envoyée</span>';
+    else if(m.statut==="Rejeté") badge=' <span style="font-size:10px;background:#c0392b;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">⛔ Rejetée</span>';
+    d.innerHTML='<div><div style="font-weight:700;font-size:15px">'+m.label+badge+'</div>'+
       '<div style="font-size:12px;color:#667;margin-top:2px">'+(actif? (m.count+" facture(s)") : "Aucune facture")+'</div></div>'+
       (actif? '<div style="text-align:right"><div style="font-weight:800;color:var(--green);font-size:15px">'+_fmtF(m.montant)+' F</div><div style="font-size:11px;color:#999">ouvrir ▸</div></div>' : '');
     if(actif){ d.onclick=function(){ ouvrirMoisFacture(regime, m.key, m.label); }; }
@@ -4670,7 +4673,7 @@ function ouvrirMoisFacture(regime, moisKey, label){
     .then(function(res){
       hideLoader();
       if(res.error){ toast("❌ "+res.error); return; }
-      APP._mf={ regime:regime, moisKey:moisKey, label:label, dates:res.dates||[], total:res.total||{count:0,montant:0} };
+      APP._mf={ regime:regime, moisKey:moisKey, label:label, dates:res.dates||[], total:res.total||{count:0,montant:0}, envoi:res.envoi||{statut:""}, rejets:res.rejets||[] };
       _mfRenderBenefs();
     }).catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
 }
@@ -4694,6 +4697,11 @@ function _mfTelechargerFacture(btn){
 
 function _mfRenderBenefs(){
   var mf=APP._mf; if(!mf) return;
+  var env=mf.envoi||{statut:""}; var nbRej=_mfRejets().length;
+  var verrTotal=(env.statut==="Envoyé" && nbRej===0);   // envoyée, verrouillée totalement
+  var partiel=(env.statut==="Envoyé" && nbRej>0);        // envoyée mais rejets ciblés ouverts
+  var rejete=(env.statut==="Rejeté");                    // rejet du mois entier
+  var dest=env.destination||(mf.regime==="ENFANTS_5ANS"?"District":"SR");
   $("fmTitre").textContent="📋 "+((APP.regimes[mf.regime]&&APP.regimes[mf.regime].titre)||mf.regime)+" — "+mf.label;
   var body=$("fmBody"); body.innerHTML="";
   // Récap + taux + téléchargement
@@ -4705,6 +4713,33 @@ function _mfRenderBenefs(){
   bDl.style.cssText="width:100%;margin-top:10px"; bDl.onclick=function(){ _mfTelechargerFacture(bDl); };
   head.appendChild(bDl); body.appendChild(head);
 
+  // Bandeau statut d'envoi
+  if(verrTotal){
+    var bv=document.createElement("div"); bv.style.cssText="border:1px solid #bfe3cc;background:#eafaf0;color:#1a7a4a;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
+    bv.innerHTML="🔒 <b>Facture envoyée au "+dest+"</b>"+(env.dateEnvoi?(" le "+env.dateEnvoi):"")+".<br>Elle est <b>verrouillée</b> (plus de modification possible, sauf rejet).";
+    body.appendChild(bv);
+  } else if(partiel){
+    var bp=document.createElement("div"); bp.style.cssText="border:1px solid #f0d8a0;background:#fff7e6;color:#b9770e;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
+    bp.innerHTML="⚠️ <b>Facture envoyée</b> avec <b>"+nbRej+" rejet(s) à corriger</b>.<br>Seuls les éléments <span style='color:#c0392b'>signalés ⛔</span> sont modifiables. Corrigez-les puis <b>renvoyez</b>.";
+    body.appendChild(bp);
+  } else if(rejete){
+    var br=document.createElement("div"); br.style.cssText="border:1px solid #f0c0c0;background:#fdeded;color:#c0392b;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
+    br.innerHTML="⛔ <b>Rejetée par le "+dest+" (tout le mois)</b>"+(env.dateRejet?(" le "+env.dateRejet):"")+(env.motif?("<br>Motif : <b>"+env.motif+"</b>"):"")+"<br>Corrigez puis renvoyez.";
+    body.appendChild(br);
+  }
+  // Bouton envoyer / renvoyer (si non verrouillé totalement et au moins une facture)
+  if(!verrTotal && (mf.dates&&mf.dates.length)){
+    var nbBr=_brouillonsDuMois(mf.regime, mf.moisKey).length;
+    var renvoi=(rejete||partiel);
+    var bEnv=document.createElement("button"); bEnv.type="button"; bEnv.className="btn";
+    bEnv.textContent=(renvoi?"📤 Renvoyer la facture au ":"📤 Envoyer la facture au ")+dest;
+    bEnv.style.cssText="width:100%;margin-bottom:"+(nbBr?"4px":"12px")+";background:"+(nbBr?"#9aa":(renvoi?"#c0392b":"#1a7a4a"));
+    bEnv.onclick=function(){ envoyerFacture(bEnv); };
+    body.appendChild(bEnv);
+    if(nbBr){ var w=document.createElement("div"); w.style.cssText="font-size:12px;color:#b9770e;margin-bottom:12px";
+      w.textContent="📝 "+nbBr+" brouillon(s) à finaliser avant l'envoi (voir « Mes factures »)."; body.appendChild(w); }
+  }
+
   if(!mf.dates.length){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture pour ce mois."; body.appendChild(e); }
   mf.dates.forEach(function(D, di){
     var t=document.createElement("div"); t.style.cssText="font-weight:800;color:var(--green);font-size:13px;margin:12px 0 6px;border-bottom:1px solid #eee;padding-bottom:3px";
@@ -4712,15 +4747,21 @@ function _mfRenderBenefs(){
     D.benefs.forEach(function(B, bi){
       var c=document.createElement("div");
       c.style.cssText="border:1px solid #e5e5e5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;gap:8px";
+      var rejB = (B.rejet!==undefined) || (B.hasRejet===true);
+      var motifB = (B.rejet!==undefined) ? B.rejet : "";
+      if(rejB) c.style.borderColor="#e0a0a0";
       var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0";
-      left.innerHTML='<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(((B.prenom||"")+" "+(B.nom||"")).trim()||"—")+'</div>'+
-        '<div style="font-size:11px;color:#667;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(B.code?(B.code+" · "):"")+B.prestations.length+' prest. · <b>'+_fmtF(B.montantFacture)+' F</b></div>';
+      left.innerHTML='<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(rejB?'⛔ ':'')+(((B.prenom||"")+" "+(B.nom||"")).trim()||"—")+'</div>'+
+        '<div style="font-size:11px;color:#667;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(B.code?(B.code+" · "):"")+B.prestations.length+' prest. · <b>'+_fmtF(B.montantFacture)+' F</b></div>'+
+        (rejB?('<div style="font-size:11px;color:#c0392b;white-space:normal">Rejeté'+(motifB?(' : '+motifB):(B.hasRejet?' (prestation)':''))+'</div>'):'');
       var acts=document.createElement("div"); acts.style.cssText="display:flex;gap:4px;flex:0 0 auto";
       function ic(txt, titre, bg, fn){ var b=document.createElement("button"); b.type="button"; b.textContent=txt; b.title=titre; b.onclick=fn;
         b.style.cssText="width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;line-height:34px;background:"+bg+";color:#fff"; return b; }
       acts.appendChild(ic("👁️","Consulter","#1a7a4a",(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi)));
-      acts.appendChild(ic("✏️","Modifier","#2471a3",(function(dd,bb){ return function(){ modifierFacture(dd,bb); }; })(di,bi)));
-      acts.appendChild(ic("🗑️","Supprimer","#c0392b",(function(dd,bb){ return function(){ supprimerFacture(dd,bb); }; })(di,bi)));
+      if(_benefEditable(B)){
+        acts.appendChild(ic("✏️","Modifier","#2471a3",(function(dd,bb){ return function(){ modifierFacture(dd,bb); }; })(di,bi)));
+        acts.appendChild(ic("🗑️","Supprimer","#c0392b",(function(dd,bb){ return function(){ supprimerFacture(dd,bb); }; })(di,bi)));
+      }
       c.appendChild(left); c.appendChild(acts); body.appendChild(c);
     });
   });
@@ -4755,11 +4796,16 @@ function consulterBenef(di, bi){
     if(sub.length) info+='<div style="font-size:11px;color:#667;margin-top:2px">'+sub.join(" · ")+'</div>';
     if(estEnfants){ info+='<div style="font-size:12px;color:#999;margin-top:3px">Inclus au forfait</div>'; }
     else { info+='<div style="font-size:12px;margin-top:3px"><span style="color:var(--green);font-weight:700">CSU '+_fmtF(csu)+' F</span> · <span style="color:#555">Patient '+_fmtF(pat)+' F</span></div>'; }
+    if(P.rejet!==undefined){ info+='<div style="font-size:11px;color:#c0392b;margin-top:2px">⛔ Rejeté'+(P.rejet?(' : '+P.rejet):'')+'</div>'; c.style.borderColor="#e0a0a0"; }
     var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0"; left.innerHTML=info;
-    var del=document.createElement("button"); del.type="button"; del.textContent="✖"; del.title="Retirer cette prestation";
-    del.style.cssText="flex:0 0 auto;width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;background:#c0392b;color:#fff";
-    del.onclick=(function(dd,bb,pp){ return function(){ retirerPrestation(dd,bb,pp); }; })(di,bi,pi);
-    c.appendChild(left); c.appendChild(del); body.appendChild(c);
+    c.appendChild(left);
+    if(_prestEditable(B,P)){
+      var del=document.createElement("button"); del.type="button"; del.textContent="✖"; del.title="Retirer cette prestation";
+      del.style.cssText="flex:0 0 auto;width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;background:#c0392b;color:#fff";
+      del.onclick=(function(dd,bb,pp){ return function(){ retirerPrestation(dd,bb,pp); }; })(di,bi,pi);
+      c.appendChild(del);
+    }
+    body.appendChild(c);
   });
   showScreen("screenFactureConsult");
 }
@@ -4834,6 +4880,42 @@ function _mfRecalcTotal(){
   mf.dates.forEach(function(D){ D.benefs.forEach(function(B){ c++; m+=(B.montantFacture||0); }); });
   mf.total={ count:c, montant:Math.round(m) };
 }
+function _mfVerrouille(){ return !!(APP._mf && APP._mf.envoi && APP._mf.envoi.statut==="Envoyé"); }
+function _mfEnvoye(){ return !!(APP._mf && APP._mf.envoi && APP._mf.envoi.statut==="Envoyé"); }
+function _mfRejets(){ return (APP._mf && APP._mf.rejets) || []; }
+function _mfVerrouTotal(){ return _mfEnvoye() && _mfRejets().length===0; }   // envoyée sans rejet ciblé
+function _benefEditable(B){ if(!_mfEnvoye()) return true; return !!(B && B.rejet!==undefined); }   // Modifier/Supprimer : seulement si le bénéficiaire entier est rejeté
+function _prestEditable(B,P){ if(!_mfEnvoye()) return true; return !!((P && P.rejet!==undefined) || (B && B.rejet!==undefined)); }
+
+function _brouillonsDuMois(regime, moisKey){
+  return _getBrouillons().filter(function(b){
+    if(b.regime!==regime) return false;
+    var dp=(b.fields&&b.fields["Date de prise en charge"])||"";
+    if(!dp) return true;                       // brouillon sans date -> considéré bloquant
+    var d=_versDate(dp); if(!d) return true;
+    var mm=d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2);
+    return mm===moisKey;
+  });
+}
+
+function envoyerFacture(btn){
+  var mf=APP._mf; if(!mf) return;
+  if(!navigator.onLine){ toast("📴 Connexion requise."); return; }
+  if(!(mf.dates && mf.dates.length)){ toast("Aucune facture à envoyer."); return; }
+  // Bloquer l'envoi s'il reste des brouillons de ce mois à finaliser
+  var brs=_brouillonsDuMois(mf.regime, mf.moisKey);
+  if(brs.length){ toast("📝 Finalisez ou supprimez vos "+brs.length+" brouillon(s) de ce régime avant d'envoyer.", 4500); return; }
+  var dest=(mf.envoi&&mf.envoi.destination)||(mf.regime==="ENFANTS_5ANS"?"District":"SR");
+  if(!confirm("Envoyer la facture de "+mf.label+" au "+dest+" ?\n\nAprès envoi, elle sera VERROUILLÉE (plus de modification), sauf en cas de rejet.")) return;
+  if(btn){ btn.disabled=true; btn.textContent="⏳ Envoi…"; }
+  apiCall({ action:"facture_envoyer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, moisKey:mf.moisKey })
+    .then(function(res){
+      if(res.error){ if(btn){ btn.disabled=false; } toast("❌ "+res.error); ouvrirMoisFacture(mf.regime, mf.moisKey, mf.label); return; }
+      toast("📤 Facture envoyée au "+(res.destination||dest));
+      ouvrirMoisFacture(mf.regime, mf.moisKey, mf.label);
+    })
+    .catch(function(){ if(btn){ btn.disabled=false; btn.textContent="📤 Envoyer la facture"; } toast("❌ Erreur réseau."); });
+}
 
 // ── MODIFIER une facture : rouvrir le formulaire pré-rempli ──
 function _versISO(s){
@@ -4844,9 +4926,10 @@ function _versISO(s){
 
 function modifierFacture(di, bi){
   var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
+  if(!_benefEditable(B)){ toast("🔒 Facture envoyée — verrouillée."); return; }
   if(!navigator.onLine){ toast("📴 Connexion requise pour modifier."); return; }
   var ids=(B.prestations||[]).map(function(p){ return p.id; }).filter(Boolean);
-  APP._editFacture={ regime:mf.regime, moisKey:mf.moisKey, label:mf.label, ids:ids };
+  APP._editFacture={ regime:mf.regime, moisKey:mf.moisKey, label:mf.label, poste:mf.poste, ids:ids };
   openForm(mf.regime, false, true);   // edition=true : formulaire seul, pas d'assistant
   _prefillEdition(B);
 }
@@ -4884,6 +4967,44 @@ function _prefillEdition(B){
   try{ renderPanierCSU(); }catch(e){}
   $("formTitle").textContent="✏️ Modifier — "+(((B.prenom||"")+" "+(B.nom||"")).trim()||"facture");
   var bv=$("btnValiderPatient"); if(bv) bv.textContent="💾 Enregistrer les modifications";
+}
+
+// Champs "acte" d'un régime (sans ouvrir le formulaire) — pour régénérer une attestation depuis « Mes factures ».
+function _acteFieldsRegime(regime){
+  var cfg=APP.regimes&&APP.regimes[regime]; if(!cfg||!cfg.fields) return [];
+  return cfg.fields.filter(function(f){ return f.list==="services"||f.list==="prestations"||f.qte||f.pu||f.montant; });
+}
+// Reconstruit le tableau d'actes (clés = noms de champs) à partir des prestations d'un bénéficiaire.
+function _actesDepuisBenef(regime, B){
+  var af=_acteFieldsRegime(regime);
+  var fServ=af.filter(function(f){return f.list==="services";})[0];
+  var fPrest=af.filter(function(f){return f.list==="prestations";})[0];
+  var fQte=af.filter(function(f){return f.qte;})[0];
+  var fPU=af.filter(function(f){return f.pu;})[0];
+  var fMt=af.filter(function(f){return f.montant;})[0];
+  var taux=_tauxCSUClient(regime);
+  return (B.prestations||[]).map(function(P){
+    var acte={};
+    if(fServ) acte[fServ.name]=P.service||"";
+    if(fPrest) acte[fPrest.name]=P.prestation||"";
+    if(fQte) acte[fQte.name]=P.qte||"";
+    if(fPU) acte[fPU.name]=P.pu||"";
+    if(fMt){ var net=P.montant||0; acte[fMt.name]=(taux<1?Math.round(net/taux):net); }
+    return acte;
+  });
+}
+// Régénère l'attestation d'un bénéficiaire (état courant de B.prestations) et la remplace sur Drive. Renvoie une Promise.
+function _regenAttestationBenef(regime, B, datePrise, poste){
+  var patient=B.data||{};
+  var dp=datePrise||patient["Date de prise en charge"]||"";
+  var actes=_actesDepuisBenef(regime, B);
+  var af=_acteFieldsRegime(regime);
+  var d=_docsAttestation(regime, patient, actes, af, dp);
+  return _genAttestation(d.attInfo, d.lignes, d.attTotaux).then(function(att){
+    return apiCall({ action:"dossier_maj_docs", email:APP.auth.email, pin:APP.auth.pin, regime:regime,
+      poste:poste||APP.user.poste||"", nom:patient["Nom"]||"", prenom:patient["Prénom(s)"]||"",
+      code:d.code||"", date:dp, attestation:att });
+  });
 }
 
 // Reconstruit les données de l'attestation (lignes + totaux) à partir des données modifiées.
@@ -4931,7 +5052,7 @@ function _enregistrerModification(patient, actes, poste){
   }
   showLoader("Enregistrement des modifications…");
   apiCall({ action:"facture_modifier", email:APP.auth.email, pin:APP.auth.pin,
-            regime:regime, ids:JSON.stringify(ef.ids||[]), entries:JSON.stringify(entries) })
+            regime:regime, moisKey:ef.moisKey||"", ids:JSON.stringify(ef.ids||[]), entries:JSON.stringify(entries) })
     .then(function(res){
       if(res.error){ hideLoader(); $("formErr").textContent="❌ "+res.error; return; }
       // Régénérer l'attestation (régimes à dossier) et la remplacer sur Drive (photos conservées)
@@ -4954,13 +5075,14 @@ function _enregistrerModification(patient, actes, poste){
 
 function supprimerFacture(di, bi){
   var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
+  if(!_benefEditable(B)){ toast("🔒 Facture envoyée — verrouillée."); return; }
   var ids=(B.prestations||[]).map(function(p){ return p.id; }).filter(Boolean);
   if(!ids.length){ toast("Impossible : prestations sans identifiant."); return; }
   var nom=((B.prenom||"")+" "+(B.nom||"")).trim();
   if(!confirm("Supprimer définitivement la facture de "+(nom||"ce bénéficiaire")+"\n("+ids.length+" prestation(s)) ?\nCette action est irréversible.")) return;
   if(!navigator.onLine){ toast("📴 Connexion requise."); return; }
   showLoader("Suppression…");
-  apiCall({ action:"lignes_supprimer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, ids:JSON.stringify(ids) })
+  apiCall({ action:"lignes_supprimer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, moisKey:mf.moisKey, ids:JSON.stringify(ids) })
     .then(function(res){ hideLoader(); if(res.error){ toast("❌ "+res.error); return; }
       toast("🗑️ Facture supprimée"); ouvrirMoisFacture(mf.regime, mf.moisKey, mf.label); })
     .catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
@@ -4969,23 +5091,34 @@ function supprimerFacture(di, bi){
 function retirerPrestation(di, bi, pi){
   var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
   var P=B.prestations[pi]; if(!P) return;
+  if(!_prestEditable(B,P)){ toast("🔒 Facture envoyée — verrouillée."); return; }
   if(!P.id){ toast("Impossible : ligne sans identifiant."); return; }
   if(!confirm("Retirer la prestation « "+(P.prestation||P.service||"")+" » ?")) return;
   if(!navigator.onLine){ toast("📴 Connexion requise."); return; }
   showLoader("Suppression…");
-  apiCall({ action:"lignes_supprimer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, ids:JSON.stringify([P.id]) })
-    .then(function(res){ hideLoader(); if(res.error){ toast("❌ "+res.error); return; }
+  apiCall({ action:"lignes_supprimer", email:APP.auth.email, pin:APP.auth.pin, regime:mf.regime, moisKey:mf.moisKey, ids:JSON.stringify([P.id]) })
+    .then(function(res){ if(res.error){ hideLoader(); toast("❌ "+res.error); return; }
       B.prestations.splice(pi,1);
       B.montant=0; B.forfait=0;
       B.prestations.forEach(function(p){ B.montant+=(p.montant||0); if((p.montant||0)>B.forfait) B.forfait=(p.montant||0); });
       B.montantFacture=(mf.regime==="ENFANTS_5ANS")? B.forfait : B.montant;
-      toast("✖ Prestation retirée");
-      if(!B.prestations.length){
-        D.benefs.splice(bi,1);
-        if(!D.benefs.length){ var idx=mf.dates.indexOf(D); if(idx>=0) mf.dates.splice(idx,1); }
-        _mfRecalcTotal(); _mfRenderBenefs();   // retour à la liste du mois
+      function majUI(){
+        if(!B.prestations.length){
+          D.benefs.splice(bi,1);
+          if(!D.benefs.length){ var idx=mf.dates.indexOf(D); if(idx>=0) mf.dates.splice(idx,1); }
+          _mfRecalcTotal(); _mfRenderBenefs();   // retour à la liste du mois
+        } else {
+          _mfRecalcTotal(); consulterBenef(di, bi);
+        }
+      }
+      // Il reste des prestations et le régime a un dossier -> régénérer l'attestation sur Drive
+      if(B.prestations.length && REGIMES_DOSSIER[mf.regime]){
+        showLoader("Mise à jour de l'attestation…");
+        _regenAttestationBenef(mf.regime, B, (B.data&&B.data["Date de prise en charge"])||D.date||"", mf.poste)
+          .then(function(r){ hideLoader(); toast((r&&r.ok&&!r.error)?"✖ Prestation retirée · attestation mise à jour":"✖ Prestation retirée (attestation non mise à jour)"); majUI(); })
+          .catch(function(){ hideLoader(); toast("✖ Prestation retirée (attestation non mise à jour)"); majUI(); });
       } else {
-        _mfRecalcTotal(); consulterBenef(di, bi);
+        hideLoader(); toast("✖ Prestation retirée"); majUI();
       }
     })
     .catch(function(){ hideLoader(); toast("❌ Erreur réseau."); });
