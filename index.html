@@ -3143,6 +3143,9 @@ function openForm(regimeKey, keepAdmin, edition, sansAssistant){
     box.appendChild(el);
   });
 
+  // Moins de 5 ans : pièce d'identification (extrait…) facultative, en bas des infos -> dossier
+  if(regimeKey==="ENFANTS_5ANS" && !edition){ box.appendChild(_blocExtraitEnfant()); }
+
   if(regimeAActes){
     var fService=APP._csuActeFields.filter(function(f){return f.list==="services";})[0];
     var fAutres=APP._csuActeFields.filter(function(f){return f.list!=="services";});
@@ -4398,7 +4401,13 @@ function _afficherDossier(ctx){
   } else if(justif==="carte"){
     body.appendChild(_blocPiece("carteRecto","🪪 Carte de couverture (physique, recto)","Photographiez la carte physique (recto) sur place — l'import n'est pas autorisé.", true, true));
   }
-  // (Enfants <5 ans : pas de justificatif physique)
+  // Moins de 5 ans : pièce d'identification (facultative), saisie à l'étape infos
+  if(ctx.regime==="ENFANTS_5ANS"){
+    var pi=document.createElement("div"); pi.style.cssText="border:1px solid #e5e5e5;border-radius:10px;padding:10px;margin-bottom:10px";
+    if(APP._dossier_extrait){ pi.innerHTML='<div style="font-size:13px;font-weight:700;margin-bottom:4px">🧾 Pièce d\'identification</div><div style="font-size:12px;color:var(--green)">✓ Jointe</div>'+_vignette(APP._dossier_extrait); }
+    else { pi.innerHTML='<div style="font-size:13px;font-weight:700;margin-bottom:4px">🧾 Pièce d\'identification</div><div style="font-size:12px;color:#999">Aucune (facultatif)</div>'; }
+    body.appendChild(pi);
+  }
 
   var err=document.createElement("div"); err.id="dossierErr"; err.className="err"; body.appendChild(err);
   var bFin=document.createElement("button"); bFin.className="btn"; bFin.type="button";
@@ -4419,6 +4428,25 @@ function _afficherDossier(ctx){
     if(APP._dossier_carteImg){ var d1=document.createElement("div"); d1.innerHTML='<div style="font-size:12px;color:#444;margin-top:4px">Carte de couverture ✓</div>'+_vignette(APP._dossier_carteImg); box.appendChild(d1); }
     var d2=document.createElement("div"); d2.innerHTML='<div style="font-size:12px;color:#444;margin-top:8px">Attestation de soins ✓</div>'+_vignette(APP._dossier_attImg); box.appendChild(d2);
   }).catch(function(){ var box=$("dosDocPreview"); if(box) box.textContent="⚠️ Impossible de générer les aperçus (ils seront régénérés)."; });
+}
+
+// Bloc « pièce d'identification » (moins de 5 ans) — facultatif, ajouté au dossier.
+function _blocExtraitEnfant(){
+  APP._dossier_extrait="";
+  var wrap=document.createElement("div");
+  wrap.style.cssText="border:1px dashed #cfe3d6;background:#f7fbf8;border-radius:10px;padding:10px;margin-top:12px";
+  wrap.innerHTML='<div style="font-size:13px;font-weight:700;margin-bottom:2px">🧾 Pièce d\'identification <span style="color:#999;font-weight:400">(facultatif)</span></div>'+
+                 '<div style="font-size:12px;color:#777;margin-bottom:8px">Extrait de naissance, carnet, PEV… — une photo ou un fichier image. Sera ajoutée au dossier du patient.</div>';
+  var bCam=document.createElement("button"); bCam.type="button"; bCam.className="btn secondary"; bCam.textContent="📷 Photographier"; bCam.style.cssText="width:100%";
+  var bImp=document.createElement("button"); bImp.type="button"; bImp.className="btn secondary"; bImp.textContent="🖼️ Joindre un fichier"; bImp.style.cssText="width:100%;margin-top:6px";
+  var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.style.display="none";
+  var prev=document.createElement("div");
+  function setImg(b64){ APP._dossier_extrait=b64; prev.innerHTML='<div style="font-size:12px;color:var(--green);margin-top:6px">✓ Pièce ajoutée</div>'+_vignette(b64); }
+  bCam.onclick=function(){ _cameraUneImage({ titre:"Pièce d'identification" }, function(b64){ setImg(b64); }); };
+  bImp.onclick=function(){ fin.click(); };
+  fin.addEventListener("change", function(){ var f=fin.files&&fin.files[0]; if(!f) return; _imageVersBase64(f,1600,function(b64){ setImg(b64); fin.value=""; }); });
+  wrap.appendChild(bCam); wrap.appendChild(bImp); wrap.appendChild(fin); wrap.appendChild(prev);
+  return wrap;
 }
 
 // Bloc tickets : un patient peut avoir PLUSIEURS tickets (photo ou import).
@@ -4536,6 +4564,7 @@ function _terminerDossier(){
   err.textContent="Enregistrement du dossier…";
   Promise.all([pCarte, pAtt]).then(function(r){
     var images={ carte:r[0]||"", attestation:r[1]||"", tickets:(APP._dossier_tickets||[]).slice(),
+                 extrait:(ctx.regime==="ENFANTS_5ANS"?(APP._dossier_extrait||""):""),
                  carteRecto:APP._dossier_carteRecto||"", cniRecto:(ctx.regime==="SESAME"?APP._cni_recto:"")||"",
                  cniVerso:(ctx.regime==="SESAME"?APP._cni_verso:"")||"" };
     var d={ id:ctx.id, regime:ctx.regime, poste:ctx.poste, patient:ctx.patient, attInfo:ctx.attInfo, images:images, cree:Date.now() };
@@ -4555,7 +4584,7 @@ function _terminerDossier(){
 }
 
 function _finDossier(ctx){
-  APP._dossierCtx=null; APP._dossier_tickets=[]; APP._dossier_carteRecto="";
+  APP._dossierCtx=null; APP._dossier_tickets=[]; APP._dossier_carteRecto=""; APP._dossier_extrait="";
   APP._dossier_carteImg=undefined; APP._dossier_attImg="";
   if(ctx.closeAfter) showScreen("screenHome"); else openForm(ctx.regime, true);
 }
