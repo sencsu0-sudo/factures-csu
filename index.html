@@ -152,6 +152,7 @@
       <select id="mfRegime" onchange="mfCharger()"></select>
       <label style="margin-top:8px">Année</label>
       <select id="mfAnnee" onchange="mfCharger()"></select>
+      <div id="mfBrouillons" style="margin-top:12px"></div>
       <div id="mfMsg" style="font-size:13px;color:#777;margin-top:10px"></div>
       <div id="mfMois" style="margin-top:10px"></div>
     </div>
@@ -284,6 +285,7 @@
       <div id="formPanierTotal" style="text-align:right;font-size:15px;font-weight:700;color:var(--green);margin-top:6px"></div>
     </div>
     <button class="btn" id="btnValiderPatient" onclick="saveEntry(true)" style="margin-top:12px">💾 Valider le patient</button>
+    <button class="btn secondary" id="btnBrouillon" onclick="_enregistrerBrouillon()" style="margin-top:8px">📝 Enregistrer comme brouillon</button>
     <div class="err" id="formErr"></div>
   </div>
 </div>
@@ -3111,8 +3113,9 @@ function calculerAge(dateStr, dateRef){
   return age;
 }
 
-function openForm(regimeKey, keepAdmin, edition){
+function openForm(regimeKey, keepAdmin, edition, sansAssistant){
   APP._editMode=!!edition;   // mode « Modifier » : pas d'assistant, pas de dossier
+  APP._brouillonEnCours=null;  // réinitialisé à chaque ouverture (reprise de brouillon le remet après)
   APP.currentRegime=regimeKey; var regime=APP.regimes[regimeKey];
   $("formTitle").textContent=(regime.icone||"")+" "+regime.titre; $("formErr").textContent="";
   var box=$("formFields"), oldValues={};
@@ -3184,7 +3187,7 @@ function openForm(regimeKey, keepAdmin, edition){
   // Assistant par étapes (régimes à vérification de couverture) ou affichage normal.
   // En mode « Modifier », on n'affiche NI l'assistant NI le dossier : juste le formulaire.
   _wizDemonter();
-  if(!edition && _estWizard(regimeKey)){
+  if(!edition && !sansAssistant && _estWizard(regimeKey)){
     APP._regimeAActes=regimeAActes;
     if(regimeKey==="SESAME"){ APP._cni_recto=""; APP._cni_verso=""; }
     else { APP._verifStatut=""; APP._verifMotif=""; APP._benef=null; }
@@ -3192,6 +3195,8 @@ function openForm(regimeKey, keepAdmin, edition){
     // Hors ligne : ni vérification ni scan possibles -> saisie directe des infos bénéficiaire
     if(!navigator.onLine){ APP._verifStatut="manuel"; _wizEtape("infos"); }
   }
+  // Bouton brouillon : masqué en mode Modifier
+  var bb=$("btnBrouillon"); if(bb) bb.style.display=edition?"none":"";
 
   showScreen("screenForm");
 }
@@ -3261,6 +3266,7 @@ function _wizEtape(e){
   aff("wizMedHdr", e==="medical" && actes);
   var fz=$("formActesZone"); if(fz) fz.style.display=(e==="medical" && actes)?"block":"none";
   var bv=$("btnValiderPatient"); if(bv) bv.style.display=(e==="medical" || (e==="infos" && !actes))?"":"none";
+  var bb=$("btnBrouillon"); if(bb) bb.style.display=(!APP._editMode && (e==="infos" || e==="medical"))?"":"none";
   try{ window.scrollTo(0,0); }catch(_e){}
 }
 
@@ -3845,6 +3851,7 @@ function saveEntry(closeAfter){
     q.push({id:uid(), regime:APP.currentRegime, poste:poste, data:data});
   });
   setQueue(q); updateSyncUI(); $("formErr").textContent="";
+  if(APP._brouillonEnCours){ _supprimerBrouillon(APP._brouillonEnCours); APP._brouillonEnCours=null; }
   toast("💾 "+actes.length+" prestation(s) enregistrée(s) ("+q.length+" en attente)");
   trySync(false);
   // Régimes à dossier médical : on enchaîne sur la constitution du dossier.
@@ -4584,7 +4591,7 @@ function csuTab(which){
   var tf=$("tabFacturation"), tm=$("tabMesFactures");
   if(tf) tf.className="btn"+(fact?"":" secondary");
   if(tm) tm.className="btn"+(fact?" secondary":"");
-  if(!fact){ if(!APP._mfInit){ mfInit(); APP._mfInit=true; } mfCharger(); }
+  if(!fact){ if(!APP._mfInit){ mfInit(); APP._mfInit=true; } _mfRenderBrouillons(); mfCharger(); }
 }
 
 function mfInit(){
@@ -4729,6 +4736,69 @@ function consulterBenef(di, bi){
 }
 
 function _mfRetourMois(){ _mfRenderBenefs(); }
+
+// ── BROUILLONS (locaux, sur l'appareil) ──
+function _getBrouillons(){ try{ return JSON.parse(localStorage.getItem("sencsu_brouillons")||"[]"); }catch(e){ return []; } }
+function _setBrouillons(a){ try{ localStorage.setItem("sencsu_brouillons", JSON.stringify(a)); }catch(e){} }
+function _supprimerBrouillon(id){ _setBrouillons(_getBrouillons().filter(function(b){ return b.id!==id; })); }
+function _fmtDateCourte(ts){ try{ var d=new Date(ts); return ("0"+d.getDate()).slice(-2)+"/"+("0"+(d.getMonth()+1)).slice(-2)+"/"+d.getFullYear(); }catch(e){ return ""; } }
+
+function _enregistrerBrouillon(){
+  var regime=APP.currentRegime; if(!regime){ return; }
+  var fields={};
+  document.querySelectorAll("#formFields [data-field], #formActeInputs [data-field]").forEach(function(el){
+    var n=el.getAttribute("data-field"); if(n!==null) fields[n]=el.value;
+  });
+  var id=APP._brouillonEnCours || ("BR_"+uid());
+  var list=_getBrouillons().filter(function(b){ return b.id!==id; });
+  list.unshift({ id:id, regime:regime, cree:Date.now(),
+                 nom:fields["Nom"]||"", prenom:fields["Prénom(s)"]||"",
+                 fields:fields, panier:(APP._csuPanier||[]).slice() });
+  _setBrouillons(list);
+  APP._brouillonEnCours=null;
+  toast("📝 Brouillon enregistré — à compléter dans « Mes factures »");
+  showScreen("screenHome");
+}
+
+function reprendreBrouillon(id){
+  var b=_getBrouillons().filter(function(x){ return x.id===id; })[0]; if(!b) return;
+  if(!APP.regimes[b.regime]){ toast("Régime indisponible sur cet appareil."); return; }
+  openForm(b.regime, false, false, true);   // sansAssistant : formulaire direct, enregistrement normal
+  APP._verifStatut="manuel"; APP._verifMotif="";   // brouillon : pas de re-vérification imposée
+  APP._brouillonEnCours=b.id;
+  var f=b.fields||{};
+  Object.keys(f).forEach(function(k){
+    var sel='[data-field="'+String(k).replace(/"/g,'\\"')+'"]';
+    var el=$("formFields").querySelector(sel) || $("formActeInputs").querySelector(sel);
+    if(el){ el.value=f[k]; try{ el.dispatchEvent(new Event("change")); }catch(e){} }
+  });
+  APP._csuPanier=(b.panier||[]).slice();
+  try{ renderPanierCSU(); }catch(e){}
+  $("formTitle").textContent="📝 Brouillon — "+(((b.prenom||"")+" "+(b.nom||"")).trim()||"à compléter");
+  var bb=$("btnBrouillon"); if(bb) bb.style.display="";
+  var bv=$("btnValiderPatient"); if(bv) bv.style.display="";
+}
+
+function _mfRenderBrouillons(){
+  var box=$("mfBrouillons"); if(!box) return; box.innerHTML="";
+  var list=_getBrouillons(); if(!list.length) return;
+  var t=document.createElement("div"); t.style.cssText="font-weight:800;color:#b9770e;font-size:13px;margin:0 0 6px";
+  t.textContent="📝 Brouillons ("+list.length+")"; box.appendChild(t);
+  list.forEach(function(b){
+    var c=document.createElement("div"); c.style.cssText="border:1px solid #f0e0c0;background:#fffaf2;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;align-items:center;gap:8px";
+    var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0";
+    var nom=(((b.prenom||"")+" "+(b.nom||"")).trim())||"(sans nom)";
+    left.innerHTML='<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+nom+'</div>'+
+      '<div style="font-size:11px;color:#998">'+((APP.regimes[b.regime]&&APP.regimes[b.regime].titre)||b.regime)+' · '+_fmtDateCourte(b.cree)+'</div>';
+    var acts=document.createElement("div"); acts.style.cssText="display:flex;gap:4px;flex:0 0 auto";
+    function ic(txt,titre,bg,fn){ var x=document.createElement("button"); x.type="button"; x.textContent=txt; x.title=titre; x.onclick=fn;
+      x.style.cssText="width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;background:"+bg+";color:#fff"; return x; }
+    acts.appendChild(ic("▶️","Reprendre","#1a7a4a",(function(bb){ return function(){ reprendreBrouillon(bb.id); }; })(b)));
+    acts.appendChild(ic("🗑️","Supprimer","#c0392b",(function(bb){ return function(){ if(confirm("Supprimer ce brouillon ?")){ _supprimerBrouillon(bb.id); _mfRenderBrouillons(); } }; })(b)));
+    c.appendChild(left); c.appendChild(acts); box.appendChild(c);
+  });
+  var sep=document.createElement("div"); sep.style.cssText="border-top:1px solid #eee;margin:10px 0 0"; box.appendChild(sep);
+}
 
 function _mfRecalcTotal(){
   var mf=APP._mf; if(!mf) return; var c=0, m=0;
