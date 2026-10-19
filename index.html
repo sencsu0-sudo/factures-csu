@@ -152,6 +152,8 @@
       <select id="mfRegime" onchange="mfCharger()"></select>
       <label style="margin-top:8px">Année</label>
       <select id="mfAnnee" onchange="mfCharger()"></select>
+      <label style="margin-top:8px">Mois</label>
+      <select id="mfMoisFiltre" onchange="mfCharger()"></select>
       <div id="mfBrouillons" style="margin-top:12px"></div>
       <div id="mfMsg" style="font-size:13px;color:#777;margin-top:10px"></div>
       <div id="mfMois" style="margin-top:10px"></div>
@@ -4633,6 +4635,13 @@ function mfInit(){
   var selA=$("mfAnnee"); selA.innerHTML=""; var an=new Date().getFullYear();
   for(var y=an; y>=an-3; y--){ var o=document.createElement("option"); o.value=y; o.textContent=y; selA.appendChild(o); }
   selA.value=an;
+  var selM=$("mfMoisFiltre");
+  if(selM){ selM.innerHTML="";
+    var noms=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+    var oAll=document.createElement("option"); oAll.value=""; oAll.textContent="Tous les mois"; selM.appendChild(oAll);
+    for(var mi=1; mi<=12; mi++){ var om=document.createElement("option"); om.value=("0"+mi).slice(-2); om.textContent=noms[mi-1]; selM.appendChild(om); }
+    selM.value=("0"+(new Date().getMonth()+1)).slice(-2);   // mois en cours par défaut
+  }
 }
 
 function mfCharger(){
@@ -4649,8 +4658,10 @@ function mfCharger(){
 
 function _mfRenderMois(regime, mois){
   var box=$("mfMois"); box.innerHTML="";
-  var aucun=mois.every(function(m){ return m.count===0; });
-  if(aucun){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture enregistrée pour cette année."; box.appendChild(e); }
+  var fMois=($("mfMoisFiltre")&&$("mfMoisFiltre").value)||"";   // "MM" ou "" (tous)
+  if(fMois) mois=mois.filter(function(m){ return String(m.key||"").slice(5)===fMois; });
+  var aucun=!mois.length || mois.every(function(m){ return m.count===0; });
+  if(aucun){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent=fMois?"Aucune facture pour ce mois.":"Aucune facture enregistrée pour cette année."; box.appendChild(e); }
   mois.forEach(function(m){
     var actif=m.count>0;
     var d=document.createElement("div");
