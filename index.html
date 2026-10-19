@@ -3002,15 +3002,24 @@ function apiCallJsonp(params) {
 
 // Appel POST : fiable pour tous les payloads (petits et gros fichiers Excel base64).
 // text/plain evite le preflight CORS ; Apps Script lit e.postData.contents.
+// Timeout (AbortController) : si Apps Script laisse la requête en attente,
+// on abandonne au bout de 25 s -> apiCall bascule automatiquement sur le JSONP.
 function apiCallPost(params) {
+  var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var to = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 25000) : null;
   return fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(params),
-    redirect: "follow"
+    redirect: "follow",
+    signal: ctrl ? ctrl.signal : undefined
   }).then(function(r){
+    if (to) clearTimeout(to);
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
+  }, function(err){
+    if (to) clearTimeout(to);
+    throw err;
   });
 }
 
@@ -4937,7 +4946,12 @@ function envoyerFacture(btn){
     .then(function(res){
       if(res.error){ if(btn){ btn.disabled=false; } toast("❌ "+res.error); ouvrirMoisFacture(mf.regime, mf.moisKey, mf.label); return; }
       toast("📤 Facture envoyée au "+(res.destination||dest));
-      ouvrirMoisFacture(mf.regime, mf.moisKey, mf.label);
+      // Mise à jour immédiate de l'écran (ne dépend pas d'un rechargement réseau)
+      mf.envoi = mf.envoi || {};
+      mf.envoi.statut = res.statut || "Envoyé";
+      mf.envoi.destination = res.destination || dest;
+      mf.rejets = [];
+      _mfRenderBenefs();
     })
     .catch(function(){ if(btn){ btn.disabled=false; btn.textContent="📤 Envoyer la facture"; } toast("❌ Erreur réseau."); });
 }
