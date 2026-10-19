@@ -4698,9 +4698,11 @@ function _mfTelechargerFacture(btn){
 function _mfRenderBenefs(){
   var mf=APP._mf; if(!mf) return;
   var env=mf.envoi||{statut:""}; var nbRej=_mfRejets().length;
-  var verrTotal=(env.statut==="Envoyé" && nbRej===0);   // envoyée, verrouillée totalement
-  var partiel=(env.statut==="Envoyé" && nbRej>0);        // envoyée mais rejets ciblés ouverts
-  var rejete=(env.statut==="Rejeté");                    // rejet du mois entier
+  var st=env.statut||"";
+  var fullLock=(st==="Envoyé"||st==="En vérification"||st==="Validé");
+  var verrTotal=(fullLock && nbRej===0);                 // verrouillée, aucune action ICP
+  var partiel=(nbRej>0 && st!=="Rejeté");                // des rejets ciblés à corriger
+  var rejete=(st==="Rejeté");                            // rejet du mois entier
   var dest=env.destination||(mf.regime==="ENFANTS_5ANS"?"District":"SR");
   $("fmTitre").textContent="📋 "+((APP.regimes[mf.regime]&&APP.regimes[mf.regime].titre)||mf.regime)+" — "+mf.label;
   var body=$("fmBody"); body.innerHTML="";
@@ -4715,8 +4717,17 @@ function _mfRenderBenefs(){
 
   // Bandeau statut d'envoi
   if(verrTotal){
-    var bv=document.createElement("div"); bv.style.cssText="border:1px solid #bfe3cc;background:#eafaf0;color:#1a7a4a;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
-    bv.innerHTML="🔒 <b>Facture envoyée au "+dest+"</b>"+(env.dateEnvoi?(" le "+env.dateEnvoi):"")+".<br>Elle est <b>verrouillée</b> (plus de modification possible, sauf rejet).";
+    var bv=document.createElement("div");
+    if(st==="En vérification"){
+      bv.style.cssText="border:1px solid #f0d8a0;background:#fff7e6;color:#b9770e;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
+      bv.innerHTML="🔎 <b>Vérification en cours par le "+dest+"</b>.<br>La facture est verrouillée le temps de la vérification.";
+    } else if(st==="Validé"){
+      bv.style.cssText="border:1px solid #bfe3cc;background:#eafaf0;color:#1a7a4a;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
+      bv.innerHTML="✅ <b>Facture validée par le "+dest+"</b>.<br>Aucune modification n'est nécessaire.";
+    } else {
+      bv.style.cssText="border:1px solid #bfe3cc;background:#eafaf0;color:#1a7a4a;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
+      bv.innerHTML="🔒 <b>Facture envoyée au "+dest+"</b>"+(env.dateEnvoi?(" le "+env.dateEnvoi):"")+".<br>En attente de vérification — verrouillée (sauf rejet).";
+    }
     body.appendChild(bv);
   } else if(partiel){
     var bp=document.createElement("div"); bp.style.cssText="border:1px solid #f0d8a0;background:#fff7e6;color:#b9770e;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px";
@@ -4880,12 +4891,15 @@ function _mfRecalcTotal(){
   mf.dates.forEach(function(D){ D.benefs.forEach(function(B){ c++; m+=(B.montantFacture||0); }); });
   mf.total={ count:c, montant:Math.round(m) };
 }
-function _mfVerrouille(){ return !!(APP._mf && APP._mf.envoi && APP._mf.envoi.statut==="Envoyé"); }
-function _mfEnvoye(){ return !!(APP._mf && APP._mf.envoi && APP._mf.envoi.statut==="Envoyé"); }
+function _mfStatut(){ return (APP._mf && APP._mf.envoi && APP._mf.envoi.statut) || ""; }
+// Mois déverrouillé totalement (non envoyé, ou rejet du mois entier)
+function _mfFullUnlock(){ var s=_mfStatut(); return s==="" || s==="Rejeté"; }
 function _mfRejets(){ return (APP._mf && APP._mf.rejets) || []; }
-function _mfVerrouTotal(){ return _mfEnvoye() && _mfRejets().length===0; }   // envoyée sans rejet ciblé
-function _benefEditable(B){ if(!_mfEnvoye()) return true; return !!(B && B.rejet!==undefined); }   // Modifier/Supprimer : seulement si le bénéficiaire entier est rejeté
-function _prestEditable(B,P){ if(!_mfEnvoye()) return true; return !!((P && P.rejet!==undefined) || (B && B.rejet!==undefined)); }
+function _mfVerrouille(){ return !_mfFullUnlock() && _mfRejets().length===0; }  // aucune édition possible
+// Modifier/Supprimer le bénéficiaire entier : si mois déverrouillé OU ce bénéficiaire est rejeté
+function _benefEditable(B){ return _mfFullUnlock() || !!(B && B.rejet!==undefined); }
+// Retirer une prestation : si mois déverrouillé OU cette prestation/ce bénéficiaire est rejeté
+function _prestEditable(B,P){ return _mfFullUnlock() || !!((P && P.rejet!==undefined) || (B && B.rejet!==undefined)); }
 
 function _brouillonsDuMois(regime, moisKey){
   return _getBrouillons().filter(function(b){
