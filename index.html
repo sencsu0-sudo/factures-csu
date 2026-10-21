@@ -5489,11 +5489,17 @@ function _ctbAddPresta(data){
   var dl=document.getElementById("dl_prestations");
   if(!dl){ dl=document.createElement("datalist"); dl.id="dl_prestations"; (APP.referentiels.prestations||[]).forEach(function(v){ var o=document.createElement("option"); o.value=v; dl.appendChild(o); }); document.body.appendChild(dl); }
   if(_ctbIsEnfant()){
-    // Moins de 5 ans : prestation / médicament (nom seul — forfait unique)
+    // Moins de 5 ans : prestation / médicament + quantité (forfait unique par prise)
     wrap.innerHTML='<label style="font-size:12px;color:#555">Prestation / médicament</label>'+
-      '<input class="ctbp-presta" list="dl_prestations" placeholder="Saisir la prestation" value="'+_ctbEsc((data&&data.presta)||"")+'" style="width:100%">'+
+      '<input class="ctbp-presta" list="dl_prestations" placeholder="Saisir la prestation" value="'+_ctbEsc((data&&data.presta)||"")+'" style="width:100%;margin-bottom:8px">'+
+      '<div style="display:flex;gap:10px;align-items:flex-end">'+
+        '<div style="flex:0 0 110px"><label style="font-size:12px;color:#555">Quantité</label>'+
+          '<input class="ctbp-qte" type="number" min="1" inputmode="numeric" value="'+_ctbEsc((data&&data.qte)||"1")+'" style="width:100%"></div>'+
+        '<div style="flex:1;font-size:11px;color:#999;padding-bottom:12px">Par défaut 1 — à ajuster pour un médicament</div>'+
+      '</div>'+
       '<button class="ctbp-del" type="button" style="background:none;border:none;color:#c0392b;font-size:12px;margin-top:8px;cursor:pointer;padding:0">✖ Retirer</button>';
     wrap.querySelector(".ctbp-presta").addEventListener("input", _ctbRefresh);
+    wrap.querySelector(".ctbp-qte").addEventListener("input", _ctbRefresh);
     wrap.querySelector(".ctbp-del").onclick=function(){ wrap.remove(); if(!$("ctbPrestas").children.length) _ctbAddPresta(); _ctbRefresh(); };
     $("ctbPrestas").appendChild(wrap); _ctbFooter(); return;
   }
@@ -5626,8 +5632,8 @@ function _ctbValider(){
   var regime=APP._ctb.regime, dFR=_ctbDateFR(date), AF=_ctbActeFields();
   var patient={}, actes;
   if(_ctbIsEnfant()){
-    var names=_ctbLignes().filter(function(l){ return l.presta; }).map(function(l){ return l.presta; });
-    if(!names.length){ if(err) err.textContent="Ajoutez au moins une prestation / médicament."; return; }
+    var lignesE=_ctbLignes().filter(function(l){ return l.presta; });
+    if(!lignesE.length){ if(err) err.textContent="Ajoutez au moins une prestation / médicament."; return; }
     var epr=($("ctbePrenom").value||"").trim(), eno=($("ctbeNom").value||"").trim();
     if(!epr||!eno){ if(err) err.textContent="Renseignez le prénom et le nom de l'enfant."; return; }
     var enaISO=$("ctbeNaiss").value||"";
@@ -5641,7 +5647,7 @@ function _ctbValider(){
     patient["Date de prise en charge"]=dFR;
     patient["Forfait"]="Forfait PS 1400";
     patient["Montant Total"]=String(_ENF_FORFAIT);
-    actes=names.map(function(nm){ var a={}; if(AF.presta) a[AF.presta.name]=nm; if(AF.mt) a[AF.mt.name]=String(_ENF_FORFAIT); return a; });
+    actes=lignesE.map(function(l){ var nm=l.presta+((l.qte&&l.qte>1)?(" × "+l.qte):""); var a={}; if(AF.presta) a[AF.presta.name]=nm; if(AF.mt) a[AF.mt.name]=String(_ENF_FORFAIT); return a; });
     APP._ctb.benef={ _std:true, prenom:epr, nom:eno, naissance:enaISO, sexe:patient["Sexe (M/F)"], extraitNo:patient["N° Matricule / Extrait naissance"], registre:patient["N° dans le registre"], tel:patient["N° Téléphone"] };
   } else if(_ctbIsSesame()){
     var lignesS=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
