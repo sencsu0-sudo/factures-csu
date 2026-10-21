@@ -88,6 +88,18 @@
 .ctb-part b{font-size:16px}
 #contribBody input{padding:11px 13px;border:1px solid #d4dde2;border-radius:9px;font-size:15px;background:#fff}
 #contribBody input:focus{outline:2px solid var(--green);border-color:var(--green)}
+.ctb-photo-row{display:flex;align-items:center;gap:12px}
+.ctb-photo-txt{flex:1;min-width:0}
+.ctb-photo-t{font-size:14px;font-weight:700}
+.ctb-photo-sub{font-size:12px;color:#999;margin-top:2px}
+.ctb-photo-ok{font-size:12px;color:#1a7a4a;font-weight:700;margin-top:2px}
+.ctb-cam{width:46px;height:46px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:18px;flex:0 0 auto;cursor:pointer}
+.ctb-cam.done{background:#e8f5e9;color:#1a7a4a;border:1px solid #bfe3cc}
+.ctb-cam2{width:46px;height:46px;border-radius:12px;border:1px solid #d4dde2;background:#fff;color:#1a7a4a;font-size:16px;flex:0 0 auto;cursor:pointer}
+.ctb-photo-del{background:none;border:none;color:#c0392b;font-size:12px;margin-top:8px;cursor:pointer;padding:0}
+.ctb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ctb-chip{font-size:12px;background:#f1f4f6;border-radius:20px;padding:4px 10px;color:#444}
+.ctb-chip b{cursor:pointer;color:#c0392b;margin-left:4px}
 </style>
 </head>
 <body>
@@ -3120,8 +3132,8 @@ function doLogout(){
 // ══════════════ ACCUEIL ══════════════
 function buildHomeGrid(){
   var grid=$("regimeGrid"); grid.innerHTML="";
-  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF","CEC"];
-  var exclus={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1,NDONGO_DARA:1};
+  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF"];
+  var exclus={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1,NDONGO_DARA:1,CEC:1};
   var cles=ordreICP.filter(function(k){ return APP.regimes[k]; });
   Object.keys(APP.regimes).forEach(function(k){ if(exclus[k]) return; if(cles.indexOf(k)<0) cles.push(k); });
   cles.forEach(function(key){
@@ -3953,8 +3965,8 @@ window.addEventListener("offline", function(){ $("offlineBanner").style.display=
 function showPDFScreen(){
   var sel=$("pdfRegime");
   sel.innerHTML='<option value="">— choisir —</option>';
-  var exclusICP={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1,NDONGO_DARA:1};
-  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF","CEC"];
+  var exclusICP={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1,NDONGO_DARA:1,CEC:1};
+  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF"];
   var cles=ordreICP.filter(function(k){ return APP.regimes[k]; });
   Object.keys(APP.regimes).forEach(function(k){ if(exclusICP[k]) return; if(cles.indexOf(k)<0) cles.push(k); });
   cles.forEach(function(k){
@@ -4656,9 +4668,9 @@ function csuTab(which){
 
 function mfInit(){
   var selR=$("mfRegime"); if(!selR) return; selR.innerHTML="";
-  var ordre=["ENFANTS_5ANS","CLASSIQUE","SESAME","NDONGO_DARA","BSF","CEC"];
+  var ordre=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF"];
   var cles=ordre.filter(function(k){ return APP.regimes[k]; });
-  Object.keys(APP.regimes||{}).forEach(function(k){ if(cles.indexOf(k)<0 && !/CESAR|DIALYSE|HEMO/.test(k)) cles.push(k); });
+  Object.keys(APP.regimes||{}).forEach(function(k){ if(cles.indexOf(k)<0 && !/CESAR|DIALYSE|HEMO|NDONGO_DARA|CEC/.test(k)) cles.push(k); });
   cles.forEach(function(k){ var o=document.createElement("option"); o.value=k; o.textContent=(APP.regimes[k]&&APP.regimes[k].titre)||k; selR.appendChild(o); });
   selR.value = APP.regimes["ENFANTS_5ANS"] ? "ENFANTS_5ANS" : (cles[0]||"");
   var selA=$("mfAnnee"); selA.innerHTML=""; var an=new Date().getFullYear();
@@ -5209,6 +5221,46 @@ function _flushDossiers(){
 // « Valider le patient » = enregistre + constitue le dossier (aucun récap).
 // ══════════════════════════════════════════════════════════════════════════
 function _ctbEsc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+
+// Bloc compact « Carte d'assuré » (photo sur place, pas d'aperçu)
+function _ctbBlocCarte(){
+  var wrap=document.createElement("div"); wrap.className="ctb-card"; wrap.id="ctbCarte";
+  function render(){
+    var has=!!APP._dossier_carteRecto;
+    wrap.innerHTML='<div class="ctb-photo-row"><div class="ctb-photo-txt">'+
+        '<div class="ctb-photo-t">🪪 Carte d\'assuré <span style="color:#999;font-weight:400">(facultatif)</span></div>'+
+        (has?'<div class="ctb-photo-ok">✓ Photo ajoutée</div>':'<div class="ctb-photo-sub">Photographier sur place</div>')+
+      '</div><button type="button" class="ctb-cam'+(has?' done':'')+'">'+(has?'✓':'📷')+'</button></div>'+
+      (has?'<button type="button" class="ctb-photo-del">✖ Retirer la photo</button>':'');
+    wrap.querySelector(".ctb-cam").onclick=function(){ _cameraUneImage({ cadreCarte:true, titre:"Carte d'assuré" }, function(b64){ APP._dossier_carteRecto=b64; render(); }); };
+    var del=wrap.querySelector(".ctb-photo-del"); if(del) del.onclick=function(){ APP._dossier_carteRecto=""; render(); };
+  }
+  render(); return wrap;
+}
+
+// Bloc compact « Ticket(s) de caisse » (plusieurs, pas d'aperçu — juste un compteur + puces)
+function _ctbBlocTickets(){
+  APP._dossier_tickets=APP._dossier_tickets||[];
+  var wrap=document.createElement("div"); wrap.className="ctb-card"; wrap.id="ctbTickets";
+  var fin=document.createElement("input"); fin.type="file"; fin.accept="image/*"; fin.multiple=true; fin.style.display="none";
+  function render(){
+    var n=(APP._dossier_tickets||[]).length, chips="";
+    for(var i=0;i<n;i++){ chips+='<span class="ctb-chip">Ticket '+(i+1)+' <b data-i="'+i+'">✖</b></span>'; }
+    wrap.innerHTML='<div class="ctb-photo-row"><div class="ctb-photo-txt">'+
+        '<div class="ctb-photo-t">🎫 Ticket(s) de caisse <span style="color:#999;font-weight:400">(facultatif)</span></div>'+
+        (n?'<div class="ctb-photo-ok">✓ '+n+' ajouté(s)</div>':'<div class="ctb-photo-sub">Un ou plusieurs</div>')+
+      '</div><div style="display:flex;gap:6px"><button type="button" class="ctb-cam2 ctb-imp">🖼️</button>'+
+        '<button type="button" class="ctb-cam">📷</button></div></div>'+
+      (n?'<div class="ctb-chips">'+chips+'</div>':'');
+    wrap.appendChild(fin);
+    wrap.querySelector(".ctb-cam").onclick=function(){ _cameraUneImage({ titre:"Ticket de caisse" }, function(b64){ APP._dossier_tickets.push(b64); render(); }); };
+    wrap.querySelector(".ctb-imp").onclick=function(){ fin.click(); };
+    Array.prototype.forEach.call(wrap.querySelectorAll(".ctb-chip b"), function(x){ x.onclick=function(){ APP._dossier_tickets.splice(parseInt(x.getAttribute("data-i"),10),1); render(); }; });
+  }
+  fin.addEventListener("change", function(){ var arr=fin.files?Array.prototype.slice.call(fin.files):[]; if(!arr.length) return;
+    (function next(i){ if(i>=arr.length){ fin.value=""; render(); return; } _imageVersBase64(arr[i],1600,function(b64){ APP._dossier_tickets.push(b64); next(i+1); }); })(0); });
+  render(); return wrap;
+}
 function _ctbDateFR(s){ var m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s||""); }
 function _ctbActeFields(){
   var fs=((APP.regimes.CLASSIQUE&&APP.regimes.CLASSIQUE.fields)||[]).filter(function(f){ return f.list==="prestations"||f.qte||f.pu||f.montant; });
@@ -5231,17 +5283,16 @@ function openContributif(prefill){
     '<input id="ctbDate" type="date" value="'+APP._ctb.date+'" style="width:100%">'));
   // 2) Patient
   var pat=document.createElement("div"); pat.id="ctbPatient"; body.appendChild(pat);
-  // 3) Carte d'assuré (facultatif, photo sur place uniquement)
-  var carte=_blocPiece("carteRecto","🪪 Prendre en photo la carte d'assuré","Photo sur place — facultatif.", true, true);
-  carte.id="ctbCarte"; carte.style.display=(APP._ctb.benef?"":"none"); body.appendChild(carte);
+  // 3) Carte d'assuré (facultatif, photo sur place uniquement) — bloc compact
+  var carte=_ctbBlocCarte(); carte.style.display=(APP._ctb.benef?"":"none"); body.appendChild(carte);
   // 4) Prestations
   var sec=document.createElement("div"); sec.id="ctbPrestaSec"; sec.style.display=(APP._ctb.benef?"":"none");
   sec.innerHTML='<div class="ctb-sec">INFORMATIONS PRESTATION</div><div id="ctbPrestas"></div>'+
     '<button class="btn secondary" type="button" id="ctbAdd" style="width:100%;margin-top:4px">➕ Ajouter une prestation</button>'+
     '<div id="ctbParts" class="ctb-parts"></div>';
   body.appendChild(sec);
-  // 5) Tickets (facultatif, plusieurs possibles)
-  var tk=_blocTickets(); tk.id="ctbTickets"; tk.style.display=(APP._ctb.benef?"":"none"); body.appendChild(tk);
+  // 5) Tickets (facultatif, plusieurs possibles) — bloc compact
+  var tk=_ctbBlocTickets(); tk.style.display=(APP._ctb.benef?"":"none"); body.appendChild(tk);
   // 6) Pied (boutons)
   var ft=document.createElement("div"); ft.id="ctbFooter"; ft.style.display=(APP._ctb.benef?"":"none"); body.appendChild(ft);
 
