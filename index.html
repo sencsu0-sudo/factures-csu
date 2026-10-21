@@ -3141,7 +3141,7 @@ function buildHomeGrid(){
     var card=document.createElement("div");
     card.className="card"; card.style.borderTopColor=r.couleur||"#1a7a4a";
     card.innerHTML='<div class="ic">'+(r.icone||"📋")+'</div><div class="t">'+r.titre+'</div>';
-    card.onclick=(key==="CLASSIQUE"||key==="BSF"||key==="SESAME") ? (function(k){ return function(){ openContributif(k); }; })(key) : function(){ openForm(key); };
+    card.onclick=(key==="CLASSIQUE"||key==="BSF"||key==="SESAME"||key==="ENFANTS_5ANS") ? (function(k){ return function(){ openContributif(k); }; })(key) : function(){ openForm(key); };
     grid.appendChild(card);
   });
 }
@@ -5279,9 +5279,11 @@ function openContributif(regimeKey, prefill){
              date:(prefill&&prefill.date)|| new Date().toISOString().slice(0,10),
              code:(prefill&&prefill.code)||"", benef:(prefill&&prefill.benef)||null,
              verifStatut:(prefill&&prefill.benef)?"valide":"" };
-  var sesame=(regimeKey==="SESAME");
-  if(sesame){ APP._cni_recto=""; APP._cni_verso=""; if(!APP._ctb.benef) APP._ctb.benef={ _sesame:true }; }
-  var reveal = sesame || !!APP._ctb.benef;
+  var sesame=(regimeKey==="SESAME"), enf=(regimeKey==="ENFANTS_5ANS");
+  if(sesame){ APP._cni_recto=""; APP._cni_verso=""; }
+  if(enf){ APP._dossier_extrait=""; }
+  if((sesame||enf) && !APP._ctb.benef) APP._ctb.benef={ _std:true };
+  var reveal = sesame || enf || !!APP._ctb.benef;
   var rg=APP.regimes[regimeKey]||{};
   var ti=$("contribTitle"); if(ti) ti.textContent=(rg.icone||"💳")+" "+(rg.titre||"Régime");
   APP._dossier_tickets=[]; APP._dossier_carteRecto="";
@@ -5291,13 +5293,19 @@ function openContributif(regimeKey, prefill){
     '<input id="ctbDate" type="date" value="'+APP._ctb.date+'" style="width:100%">'));
   // 2) Patient
   var pat=document.createElement("div"); pat.id="ctbPatient"; body.appendChild(pat);
-  // 3) Carte d'assuré — seulement pour les régimes à carte (pas Sésame : la CNI est le justificatif)
-  if(!sesame){ var carte=_ctbBlocCarte(); carte.style.display=(reveal?"":"none"); body.appendChild(carte); }
-  // 4) Prestations
+  // 3) Carte d'assuré — seulement pour les régimes à carte physique (pas Sésame/Enfants)
+  if(!sesame && !enf){ var carte=_ctbBlocCarte(); carte.style.display=(reveal?"":"none"); body.appendChild(carte); }
+  // 4) Prestations (+ Diagnostic + forfait pour les moins de 5 ans)
   var sec=document.createElement("div"); sec.id="ctbPrestaSec"; sec.style.display=(reveal?"":"none");
-  sec.innerHTML='<div class="ctb-sec">INFORMATIONS PRESTATION</div><div id="ctbPrestas"></div>'+
-    '<button class="btn secondary" type="button" id="ctbAdd" style="width:100%;margin-top:4px">➕ Ajouter une prestation</button>'+
-    '<div id="ctbParts" class="ctb-parts"></div>';
+  if(enf){
+    sec.innerHTML='<div class="ctb-sec">PRESTATIONS ET MÉDICAMENTS</div><div id="ctbPrestas"></div>'+
+      '<button class="btn secondary" type="button" id="ctbAdd" style="width:100%;margin-top:4px">➕ Ajouter une prestation</button>'+
+      '<div id="ctbParts" class="ctb-parts"></div>';
+  } else {
+    sec.innerHTML='<div class="ctb-sec">INFORMATIONS PRESTATION</div><div id="ctbPrestas"></div>'+
+      '<button class="btn secondary" type="button" id="ctbAdd" style="width:100%;margin-top:4px">➕ Ajouter une prestation</button>'+
+      '<div id="ctbParts" class="ctb-parts"></div>';
+  }
   body.appendChild(sec);
   // 5) Tickets (facultatif, plusieurs possibles) — bloc compact
   var tk=_ctbBlocTickets(); tk.style.display=(reveal?"":"none"); body.appendChild(tk);
@@ -5321,11 +5329,39 @@ function _ctbBloc(titre, inner){
 }
 
 function _ctbIsSesame(){ return (APP._ctb&&APP._ctb.regime)==="SESAME"; }
+function _ctbIsEnfant(){ return (APP._ctb&&APP._ctb.regime)==="ENFANTS_5ANS"; }
+var _ENF_FORFAIT=1400;
 function _ctbToISO(s){ s=String(s||""); var m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); if(m) return m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2); var m2=s.match(/^\d{4}-\d{2}-\d{2}/); return m2?m2[0]:""; }
 function _ctbF(id,label,val,type){ return '<label style="font-size:12px;color:#555;display:block;margin-top:8px">'+label+'</label><input id="'+id+'" type="'+(type||"text")+'" value="'+_ctbEsc(val||"")+'" style="width:100%">'; }
 
 function _ctbRenderPatient(){
   var box=$("ctbPatient"); if(!box) return;
+  // ── Moins de 5 ans : extrait de naissance (facultatif) + identité éditable ──
+  if(_ctbIsEnfant()){
+    var e=APP._ctb.benef||{}, hasEx=!!APP._dossier_extrait;
+    box.innerHTML='<div class="ctb-card"><div class="ctb-label">PATIENT <span style="color:#999;font-weight:400">(moins de 5 ans)</span></div>'+
+      '<div class="ctb-photo-row"><div class="ctb-photo-txt">'+
+        '<div class="ctb-photo-t">🧾 Extrait de naissance <span style="color:#999;font-weight:400">(facultatif)</span></div>'+
+        (hasEx?'<div class="ctb-photo-ok">✓ Pièce ajoutée</div>':'<div class="ctb-photo-sub">Extrait, carnet, PEV…</div>')+
+      '</div><div style="display:flex;gap:6px"><button type="button" class="ctb-cam2" id="ctbeImp">🖼️</button><button type="button" class="ctb-cam'+(hasEx?' done':'')+'" id="ctbeCam">'+(hasEx?'✓':'📷')+'</button></div></div>'+
+      (hasEx?'<button type="button" class="ctb-photo-del" id="ctbeDel">✖ Retirer la pièce</button>':'')+
+      _ctbF("ctbePrenom","Prénom(s)",e.prenom)+
+      _ctbF("ctbeNom","Nom",e.nom)+
+      '<div style="display:flex;gap:8px">'+
+        '<div style="flex:1"><label style="font-size:12px;color:#555;display:block;margin-top:8px">Date de naissance</label><input id="ctbeNaiss" type="date" value="'+_ctbEsc(_ctbToISO(e.naissance))+'" style="width:100%"></div>'+
+        '<div style="flex:0 0 90px"><label style="font-size:12px;color:#555;display:block;margin-top:8px">Sexe</label><select id="ctbeSexe" style="width:100%;padding:11px 10px;border:1px solid #d4dde2;border-radius:9px"><option value="">—</option><option value="M"'+(e.sexe==="M"?" selected":"")+'>M</option><option value="F"'+(e.sexe==="F"?" selected":"")+'>F</option></select></div>'+
+      '</div>'+
+      _ctbF("ctbeExtraitNo","N° carnet / N° Extrait / N° PEV",e.extraitNo)+
+      _ctbF("ctbeRegistre","N° dans le registre",e.registre)+
+      _ctbF("ctbeTel","N° Téléphone du parent",e.tel,"tel")+
+      '<input id="ctbeFile" type="file" accept="image/*" style="display:none">'+
+      '</div>';
+    $("ctbeCam").onclick=function(){ _cameraUneImage({ titre:"Extrait de naissance" }, function(b64){ APP._dossier_extrait=b64; _ctbRenderPatient(); }); };
+    $("ctbeImp").onclick=function(){ $("ctbeFile").click(); };
+    $("ctbeFile").addEventListener("change", function(ev){ var f=ev.target.files&&ev.target.files[0]; if(!f) return; _imageVersBase64(f,1600,function(b64){ APP._dossier_extrait=b64; _ctbRenderPatient(); }); });
+    var ed=$("ctbeDel"); if(ed) ed.onclick=function(){ APP._dossier_extrait=""; _ctbRenderPatient(); };
+    return;
+  }
   // ── Plan Sésame : identification par scan de la CNI (OCR) + champs éditables ──
   if(_ctbIsSesame()){
     var b=APP._ctb.benef||{}, hasCni=!!(APP._cni_recto && APP._cni_verso);
@@ -5450,6 +5486,17 @@ function _ctbManuel(){
 
 function _ctbAddPresta(data){
   var wrap=document.createElement("div"); wrap.className="ctb-presta";
+  var dl=document.getElementById("dl_prestations");
+  if(!dl){ dl=document.createElement("datalist"); dl.id="dl_prestations"; (APP.referentiels.prestations||[]).forEach(function(v){ var o=document.createElement("option"); o.value=v; dl.appendChild(o); }); document.body.appendChild(dl); }
+  if(_ctbIsEnfant()){
+    // Moins de 5 ans : prestation / médicament (nom seul — forfait unique)
+    wrap.innerHTML='<label style="font-size:12px;color:#555">Prestation / médicament</label>'+
+      '<input class="ctbp-presta" list="dl_prestations" placeholder="Saisir la prestation" value="'+_ctbEsc((data&&data.presta)||"")+'" style="width:100%">'+
+      '<button class="ctbp-del" type="button" style="background:none;border:none;color:#c0392b;font-size:12px;margin-top:8px;cursor:pointer;padding:0">✖ Retirer</button>';
+    wrap.querySelector(".ctbp-presta").addEventListener("input", _ctbRefresh);
+    wrap.querySelector(".ctbp-del").onclick=function(){ wrap.remove(); if(!$("ctbPrestas").children.length) _ctbAddPresta(); _ctbRefresh(); };
+    $("ctbPrestas").appendChild(wrap); _ctbFooter(); return;
+  }
   wrap.innerHTML=
     '<label style="font-size:12px;color:#555">Prestation</label>'+
     '<input class="ctbp-presta" list="dl_prestations" placeholder="Saisir la prestation" value="'+_ctbEsc((data&&data.presta)||"")+'" style="width:100%;margin-bottom:8px">'+
@@ -5460,8 +5507,6 @@ function _ctbAddPresta(data){
         '<input class="ctbp-pu" type="number" min="0" inputmode="numeric" value="'+_ctbEsc((data&&(data.pu||data.pu===0)?data.pu:""))+'" style="width:100%"></div>'+
     '</div>'+
     '<button class="ctbp-del" type="button" style="background:none;border:none;color:#c0392b;font-size:12px;margin-top:8px;cursor:pointer;padding:0">✖ Retirer cette prestation</button>';
-  var dl=document.getElementById("dl_prestations");
-  if(!dl){ dl=document.createElement("datalist"); dl.id="dl_prestations"; (APP.referentiels.prestations||[]).forEach(function(v){ var o=document.createElement("option"); o.value=v; dl.appendChild(o); }); document.body.appendChild(dl); }
   var presta=wrap.querySelector(".ctbp-presta"), qte=wrap.querySelector(".ctbp-qte"), pu=wrap.querySelector(".ctbp-pu");
   presta.addEventListener("change", function(){ var px=(APP.referentiels.prix||{})[presta.value]; if(px!==undefined && !pu.value){ pu.value=px; } _ctbRefresh(); });
   qte.addEventListener("input", _ctbRefresh); pu.addEventListener("input", _ctbRefresh);
@@ -5471,19 +5516,31 @@ function _ctbAddPresta(data){
 }
 
 function _ctbLignes(){
-  var out=[];
-  Array.prototype.forEach.call($("ctbPrestas").children, function(w){
-    var presta=(w.querySelector(".ctbp-presta").value||"").trim();
-    var qte=parseFloat(w.querySelector(".ctbp-qte").value)||0;
-    var pu=parseFloat(w.querySelector(".ctbp-pu").value)||0;
+  var out=[], pr=$("ctbPrestas"); if(!pr) return out;
+  Array.prototype.forEach.call(pr.children, function(w){
+    var pe=w.querySelector(".ctbp-presta"), qe=w.querySelector(".ctbp-qte"), ue=w.querySelector(".ctbp-pu");
+    var presta=pe?(pe.value||"").trim():"";
+    var qte=qe?(parseFloat(qe.value)||0):0;
+    var pu=ue?(parseFloat(ue.value)||0):0;
     if(presta || qte>0 || pu>0) out.push({ presta:presta, qte:qte, pu:pu });
   });
   return out;
 }
+function _ctbComplet(){
+  return _ctbIsEnfant()
+    ? _ctbLignes().filter(function(l){ return l.presta; }).length>0
+    : _ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; }).length>0;
+}
 function _ctbRecalc(){
+  var box=$("ctbParts"); if(!box) return;
+  if(_ctbIsEnfant()){
+    box.innerHTML='<div class="ctb-part"><span>Forfait (moins de 5 ans)</span><b style="color:#1a7a4a">'+fmtFCFA(_ENF_FORFAIT)+'</b></div>'+
+      '<div class="ctb-part" style="font-size:11.5px;color:#888"><span>Pris en charge à 100 % — un seul forfait par prise</span></div>';
+    return;
+  }
   var lignes=_ctbLignes(), brut=0; lignes.forEach(function(l){ brut+=(l.qte*l.pu)||0; });
   var taux=_tauxCSUClient((APP._ctb&&APP._ctb.regime)||"CLASSIQUE"), csu=Math.round(brut*taux), pat=Math.round(brut*(1-taux));
-  var box=$("ctbParts"); if(box) box.innerHTML=
+  box.innerHTML=
     '<div class="ctb-part"><span>Part SEN-CSU ('+Math.round(taux*100)+' %)</span><b style="color:#1a7a4a">'+fmtFCFA(csu)+'</b></div>'+
     '<div class="ctb-part"><span>Part patient ('+Math.round((1-taux)*100)+' %)</span><b>'+fmtFCFA(pat)+'</b></div>';
 }
@@ -5491,9 +5548,8 @@ function _ctbRefresh(){ _ctbRecalc(); _ctbFooter(); }
 
 function _ctbFooter(){
   var ft=$("ctbFooter"); if(!ft) return;
-  var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
   var h="";
-  if(lignes.length){
+  if(_ctbComplet()){
     h+='<button class="btn" type="button" onclick="_ctbValider()" style="width:100%;margin-top:4px">✅ Valider le patient</button>'+
        '<button class="btn secondary" type="button" onclick="_ctbBrouillon()" style="width:100%;margin-top:8px">💾 Enregistrer à compléter</button>';
   } else {
@@ -5527,14 +5583,23 @@ function _ctbCtx(regime, poste, patient, actes, acteFields, datePrise){
   var fQ=(acteFields||[]).filter(function(f){return f.qte;})[0], fPU=(acteFields||[]).filter(function(f){return f.pu;})[0],
       fMT=(acteFields||[]).filter(function(f){return f.montant;})[0], fPR=(acteFields||[]).filter(function(f){return f.list==="prestations";})[0];
   var dateAff=patient["Date de prise en charge"]||datePrise||"";
-  var lignes=(actes||[]).map(function(a){
-    var q=fQ?parseFloat(a[fQ.name]||"0"):0, pu=fPU?parseFloat(a[fPU.name]||"0"):0;
-    var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0); if(isNaN(brut)) brut=0;
-    var net=Math.round(brut*taux), paye=Math.round(brut-net);
-    return { date:dateAff, nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
-  });
-  var attInfo={ assureur:"SEN-CSU", numero:_prochainNumeroAttestation(), prenoms:cardInfo.prenoms, nom:cardInfo.nom, code:code, age:age, sexe:patient["Sexe (H/F)"]||"" };
-  return { id:"DOS_"+uid(), regime:regime, poste:poste, patient:patient, cardInfo:cardInfo, lignes:lignes, attTotaux:null, attInfo:attInfo };
+  var lignes, attTotaux=null;
+  if(regime==="ENFANTS_5ANS"){
+    // Moins de 5 ans : prestations détaillées avec tirets, forfait unique au TOTAL.
+    var forfait=parseFloat(String(patient["Montant Total"]||"").replace(/[^\d.]/g,""))||_ENF_FORFAIT;
+    lignes=(actes||[]).map(function(a){ return { date:dateAff, nature:fPR?(a[fPR.name]||""):"", paye:"—", facture:"—" }; }).filter(function(L){ return L.nature; });
+    if(!lignes.length) lignes=[{ date:dateAff, nature:"Forfait prise en charge (moins de 5 ans)", paye:"—", facture:"—" }];
+    attTotaux={ paye:0, facture:forfait };
+  } else {
+    lignes=(actes||[]).map(function(a){
+      var q=fQ?parseFloat(a[fQ.name]||"0"):0, pu=fPU?parseFloat(a[fPU.name]||"0"):0;
+      var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0); if(isNaN(brut)) brut=0;
+      var net=Math.round(brut*taux), paye=Math.round(brut-net);
+      return { date:dateAff, nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
+    });
+  }
+  var attInfo={ assureur:"SEN-CSU", numero:_prochainNumeroAttestation(), prenoms:cardInfo.prenoms, nom:cardInfo.nom, code:code, age:age, sexe:patient["Sexe (H/F)"]||patient["Sexe (M/F)"]||"" };
+  return { id:"DOS_"+uid(), regime:regime, poste:poste, patient:patient, cardInfo:cardInfo, lignes:lignes, attTotaux:attTotaux, attInfo:attInfo };
 }
 
 // Génère carte + attestation, joint les photos déjà prises, enregistre/envoie (sans écran récap).
@@ -5542,9 +5607,10 @@ function _ctbEnvoyerDossier(ctx){
   var pCarte=REGIMES_CARTE[ctx.regime]? _genCarte(ctx.cardInfo) : Promise.resolve("");
   var pAtt=_genAttestation(ctx.attInfo, ctx.lignes, ctx.attTotaux);
   return Promise.all([pCarte, pAtt]).then(function(r){
-    var ses=(ctx.regime==="SESAME");
+    var ses=(ctx.regime==="SESAME"), enf=(ctx.regime==="ENFANTS_5ANS");
     var images={ carte:r[0]||"", attestation:r[1]||"", tickets:(APP._dossier_tickets||[]).slice(),
-                 extrait:"", carteRecto:(ses?"":(APP._dossier_carteRecto||"")),
+                 extrait:(enf?(APP._dossier_extrait||""):""),
+                 carteRecto:((ses||enf)?"":(APP._dossier_carteRecto||"")),
                  cniRecto:(ses?(APP._cni_recto||""):""), cniVerso:(ses?(APP._cni_verso||""):"") };
     var d={ id:ctx.id, regime:ctx.regime, poste:ctx.poste, patient:ctx.patient, attInfo:ctx.attInfo, images:images, cree:Date.now() };
     return _idbPut(d).then(function(){
@@ -5556,14 +5622,30 @@ function _ctbEnvoyerDossier(ctx){
 
 function _ctbValider(){
   var err=$("ctbErr"); if(err){ err.style.color="#c0392b"; err.textContent=""; }
-  var b=APP._ctb.benef;
-  if(!b){ if(err) err.textContent="Vérifiez d'abord l'éligibilité."; return; }
   var date=$("ctbDate").value; if(!date){ if(err) err.textContent="Indiquez la date de prise en charge."; return; }
-  var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
-  if(!lignes.length){ if(err) err.textContent="Ajoutez au moins une prestation complète."; return; }
   var regime=APP._ctb.regime, dFR=_ctbDateFR(date), AF=_ctbActeFields();
-  var patient={};
-  if(_ctbIsSesame()){
+  var patient={}, actes;
+  if(_ctbIsEnfant()){
+    var names=_ctbLignes().filter(function(l){ return l.presta; }).map(function(l){ return l.presta; });
+    if(!names.length){ if(err) err.textContent="Ajoutez au moins une prestation / médicament."; return; }
+    var epr=($("ctbePrenom").value||"").trim(), eno=($("ctbeNom").value||"").trim();
+    if(!epr||!eno){ if(err) err.textContent="Renseignez le prénom et le nom de l'enfant."; return; }
+    var enaISO=$("ctbeNaiss").value||"";
+    if(enaISO){ var eage=calculerAge(enaISO, _ctbToISO(dFR)||date); if(eage!=null && eage>=5){ if(err) err.textContent="⛔ Cet enfant a "+eage+" ans (régime réservé aux moins de 5 ans)."; return; } }
+    patient["N° dans le registre"]=($("ctbeRegistre").value||"").trim();
+    patient["Prénom(s)"]=epr; patient["Nom"]=eno;
+    patient["Date de naissance"]=enaISO? _ctbIsoToFR(enaISO):"";
+    patient["Sexe (M/F)"]=$("ctbeSexe").value||"";
+    patient["N° Matricule / Extrait naissance"]=($("ctbeExtraitNo").value||"").trim();
+    patient["N° Téléphone"]=($("ctbeTel").value||"").trim();
+    patient["Date de prise en charge"]=dFR;
+    patient["Forfait"]="Forfait PS 1400";
+    patient["Montant Total"]=String(_ENF_FORFAIT);
+    actes=names.map(function(nm){ var a={}; if(AF.presta) a[AF.presta.name]=nm; if(AF.mt) a[AF.mt.name]=String(_ENF_FORFAIT); return a; });
+    APP._ctb.benef={ _std:true, prenom:epr, nom:eno, naissance:enaISO, sexe:patient["Sexe (M/F)"], extraitNo:patient["N° Matricule / Extrait naissance"], registre:patient["N° dans le registre"], tel:patient["N° Téléphone"] };
+  } else if(_ctbIsSesame()){
+    var lignesS=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
+    if(!lignesS.length){ if(err) err.textContent="Ajoutez au moins une prestation complète."; return; }
     var pr=($("ctbsPrenom").value||"").trim(), no=($("ctbsNom").value||"").trim();
     if(!pr||!no){ if(err) err.textContent="Renseignez le prénom et le nom (scannez la CNI ou saisissez à la main)."; return; }
     var naissISO=$("ctbsNaiss").value||"";
@@ -5575,21 +5657,20 @@ function _ctbValider(){
     patient["N° Téléphone"]=($("ctbsTel").value||"").trim();
     patient["Date de prise en charge"]=dFR;
     APP._ctb.benef={ _sesame:true, prenom:pr, nom:no, naissance:naissISO, naissanceFR:patient["Date de naissance"], sexe:patient["Sexe (H/F)"], cni:patient["N° CNI"], telephone:patient["N° Téléphone"], photo:APP._cni_recto||"" };
+    actes=lignesS.map(function(l){ var a={}; if(AF.presta) a[AF.presta.name]=l.presta; if(AF.qte) a[AF.qte.name]=String(l.qte); if(AF.pu) a[AF.pu.name]=String(l.pu); if(AF.mt) a[AF.mt.name]=String(Math.round(l.qte*l.pu)); return a; });
   } else {
+    var b=APP._ctb.benef;
+    if(!b){ if(err) err.textContent="Vérifiez d'abord l'éligibilité."; return; }
+    var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
+    if(!lignes.length){ if(err) err.textContent="Ajoutez au moins une prestation complète."; return; }
     var champCode=(CHAMP_CODE_VERIF[regime])||"N° Matricule / Code Bénéficiaire";
     patient["Prénom(s)"]=b.prenom||""; patient["Nom"]=b.nom||"";
     patient["Date de naissance"]=b.naissanceFR||""; patient["Sexe (H/F)"]=b.sexe||"";
     patient["N° Téléphone"]=b.telephone||"";
     patient[champCode]=b.code||APP._ctb.code||"";
     patient["Date de prise en charge"]=dFR;
+    actes=lignes.map(function(l){ var a={}; if(AF.presta) a[AF.presta.name]=l.presta; if(AF.qte) a[AF.qte.name]=String(l.qte); if(AF.pu) a[AF.pu.name]=String(l.pu); if(AF.mt) a[AF.mt.name]=String(Math.round(l.qte*l.pu)); return a; });
   }
-  var actes=lignes.map(function(l){ var a={};
-    if(AF.presta) a[AF.presta.name]=l.presta;
-    if(AF.qte) a[AF.qte.name]=String(l.qte);
-    if(AF.pu) a[AF.pu.name]=String(l.pu);
-    if(AF.mt) a[AF.mt.name]=String(Math.round(l.qte*l.pu));
-    return a;
-  });
   var poste=APP.user.poste;
   var q=getQueue();
   actes.forEach(function(acte){ var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; }); Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
@@ -5609,10 +5690,13 @@ function _ctbValider(){
 
 function _ctbBrouillon(){
   var b=APP._ctb.benef, date=$("ctbDate").value||"", prestas=_ctbLignes();
+  var g=function(id){ var e=$(id); return e? (e.value||"").trim() : ""; };
   if(_ctbIsSesame()){
-    var g=function(id){ var e=$(id); return e? (e.value||"").trim() : ""; };
     b={ _sesame:true, prenom:g("ctbsPrenom"), nom:g("ctbsNom"), naissance:g("ctbsNaiss"),
         naissanceFR:_ctbIsoToFR(g("ctbsNaiss")), sexe:g("ctbsSexe"), cni:g("ctbsCni"), telephone:g("ctbsTel") };
+  } else if(_ctbIsEnfant()){
+    b={ _std:true, prenom:g("ctbePrenom"), nom:g("ctbeNom"), naissance:g("ctbeNaiss"), sexe:g("ctbeSexe"),
+        extraitNo:g("ctbeExtraitNo"), registre:g("ctbeRegistre"), tel:g("ctbeTel") };
   }
   var benefLite=null; if(b){ benefLite={}; Object.keys(b).forEach(function(k){ if(k!=="photo") benefLite[k]=b[k]; }); }
   var id=APP._brouillonEnCours || ("BR_"+uid());
