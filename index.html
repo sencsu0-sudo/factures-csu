@@ -93,9 +93,9 @@
 .ctb-photo-t{font-size:14px;font-weight:700}
 .ctb-photo-sub{font-size:12px;color:#999;margin-top:2px}
 .ctb-photo-ok{font-size:12px;color:#1a7a4a;font-weight:700;margin-top:2px}
-.ctb-cam{width:46px;height:46px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:18px;flex:0 0 auto;cursor:pointer}
+.ctb-cam{width:46px;height:46px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:20px;flex:0 0 auto;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0}
 .ctb-cam.done{background:#e8f5e9;color:#1a7a4a;border:1px solid #bfe3cc}
-.ctb-cam2{width:46px;height:46px;border-radius:12px;border:1px solid #d4dde2;background:#fff;color:#1a7a4a;font-size:16px;flex:0 0 auto;cursor:pointer}
+.ctb-cam2{width:46px;height:46px;border-radius:12px;border:1px solid #d4dde2;background:#fff;color:#1a7a4a;font-size:17px;flex:0 0 auto;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0}
 .ctb-photo-del{background:none;border:none;color:#c0392b;font-size:12px;margin-top:8px;cursor:pointer;padding:0}
 .ctb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .ctb-chip{font-size:12px;background:#f1f4f6;border-radius:20px;padding:4px 10px;color:#444}
@@ -370,7 +370,7 @@
 <div class="screen" id="screenContrib">
   <div class="form-head">
     <button class="back" onclick="showScreen('screenHome')">←</button>
-    <div class="form-title">💳 Régime contributif</div>
+    <div class="form-title" id="contribTitle">💳 Régime contributif</div>
   </div>
   <div id="contribBody"></div>
 </div>
@@ -3141,7 +3141,7 @@ function buildHomeGrid(){
     var card=document.createElement("div");
     card.className="card"; card.style.borderTopColor=r.couleur||"#1a7a4a";
     card.innerHTML='<div class="ic">'+(r.icone||"📋")+'</div><div class="t">'+r.titre+'</div>';
-    card.onclick=(key==="CLASSIQUE") ? function(){ openContributif(); } : function(){ openForm(key); };
+    card.onclick=(key==="CLASSIQUE"||key==="BSF") ? (function(k){ return function(){ openContributif(k); }; })(key) : function(){ openForm(key); };
     grid.appendChild(card);
   });
 }
@@ -4901,7 +4901,7 @@ function _enregistrerBrouillon(){
 function reprendreBrouillon(id){
   var b=_getBrouillons().filter(function(x){ return x.id===id; })[0]; if(!b) return;
   if(!APP.regimes[b.regime]){ toast("Régime indisponible sur cet appareil."); return; }
-  if(b.contrib){ openContributif(b); return; }   // Régime contributif : formulaire fluide pré-rempli
+  if(b.contrib){ openContributif(b.regime, b); return; }   // Formulaire fluide pré-rempli (contributif / BSF-CEC)
   openForm(b.regime, false, false, true);   // sansAssistant : formulaire direct, enregistrement normal
   APP._verifStatut="manuel"; APP._verifMotif="";   // brouillon : pas de re-vérification imposée
   APP._brouillonEnCours=b.id;
@@ -5263,7 +5263,8 @@ function _ctbBlocTickets(){
 }
 function _ctbDateFR(s){ var m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s||""); }
 function _ctbActeFields(){
-  var fs=((APP.regimes.CLASSIQUE&&APP.regimes.CLASSIQUE.fields)||[]).filter(function(f){ return f.list==="prestations"||f.qte||f.pu||f.montant; });
+  var rk=(APP._ctb&&APP._ctb.regime)||"CLASSIQUE";
+  var fs=((APP.regimes[rk]&&APP.regimes[rk].fields)||[]).filter(function(f){ return f.list==="prestations"||f.qte||f.pu||f.montant; });
   return { all:fs,
     presta:fs.filter(function(f){return f.list==="prestations";})[0],
     qte:fs.filter(function(f){return f.qte;})[0],
@@ -5271,11 +5272,15 @@ function _ctbActeFields(){
     mt:fs.filter(function(f){return f.montant;})[0] };
 }
 
-function openContributif(prefill){
-  APP.currentRegime="CLASSIQUE"; APP._editMode=false; APP._brouillonEnCours=(prefill&&prefill.id)||null;
-  APP._ctb={ date:(prefill&&prefill.date)|| new Date().toISOString().slice(0,10),
+function openContributif(regimeKey, prefill){
+  regimeKey=regimeKey||"CLASSIQUE";
+  APP.currentRegime=regimeKey; APP._editMode=false; APP._brouillonEnCours=(prefill&&prefill.id)||null;
+  APP._ctb={ regime:regimeKey,
+             date:(prefill&&prefill.date)|| new Date().toISOString().slice(0,10),
              code:(prefill&&prefill.code)||"", benef:(prefill&&prefill.benef)||null,
              verifStatut:(prefill&&prefill.benef)?"valide":"" };
+  var rg=APP.regimes[regimeKey]||{};
+  var ti=$("contribTitle"); if(ti) ti.textContent=(rg.icone||"💳")+" "+(rg.titre||"Régime");
   APP._dossier_tickets=[]; APP._dossier_carteRecto="";
   var body=$("contribBody"); body.innerHTML="";
   // 1) Date de prise en charge
@@ -5352,7 +5357,7 @@ function _ctbVerifier(){
   if(!code){ msg.style.color="#c0392b"; msg.textContent="Entrez le code d'immatriculation."; return; }
   if(!navigator.onLine){ msg.style.color="#b9770e"; msg.textContent="📴 Pas de réseau — saisie manuelle possible."; _ctbManuel(); return; }
   var btn=$("ctbVerif"); btn.disabled=true; msg.style.color="#555"; msg.textContent="🔎 Vérification en cours…";
-  apiCall({ action:"verif_csu", email:APP.auth.email, pin:APP.auth.pin, regime:"CLASSIQUE", code:code })
+  apiCall({ action:"verif_csu", email:APP.auth.email, pin:APP.auth.pin, regime:APP._ctb.regime, code:code })
     .then(function(res){ btn.disabled=false;
       if(res.error){ msg.style.color="#c0392b"; msg.textContent="❌ "+res.error; return; }
       if(res.indisponible){ msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.erreur||"Service indisponible."); _ctbManuel(); return; }
@@ -5414,7 +5419,7 @@ function _ctbLignes(){
 }
 function _ctbRecalc(){
   var lignes=_ctbLignes(), brut=0; lignes.forEach(function(l){ brut+=(l.qte*l.pu)||0; });
-  var taux=_tauxCSUClient("CLASSIQUE"), csu=Math.round(brut*taux), pat=Math.round(brut*(1-taux));
+  var taux=_tauxCSUClient((APP._ctb&&APP._ctb.regime)||"CLASSIQUE"), csu=Math.round(brut*taux), pat=Math.round(brut*(1-taux));
   var box=$("ctbParts"); if(box) box.innerHTML=
     '<div class="ctb-part"><span>Part SEN-CSU ('+Math.round(taux*100)+' %)</span><b style="color:#1a7a4a">'+fmtFCFA(csu)+'</b></div>'+
     '<div class="ctb-part"><span>Part patient ('+Math.round((1-taux)*100)+' %)</span><b>'+fmtFCFA(pat)+'</b></div>';
@@ -5491,12 +5496,13 @@ function _ctbValider(){
   var date=$("ctbDate").value; if(!date){ if(err) err.textContent="Indiquez la date de prise en charge."; return; }
   var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
   if(!lignes.length){ if(err) err.textContent="Ajoutez au moins une prestation complète."; return; }
-  var dFR=_ctbDateFR(date), AF=_ctbActeFields();
+  var regime=APP._ctb.regime, dFR=_ctbDateFR(date), AF=_ctbActeFields();
+  var champCode=(CHAMP_CODE_VERIF[regime])||"N° Matricule / Code Bénéficiaire";
   var patient={};
   patient["Prénom(s)"]=b.prenom||""; patient["Nom"]=b.nom||"";
   patient["Date de naissance"]=b.naissanceFR||""; patient["Sexe (H/F)"]=b.sexe||"";
   patient["N° Téléphone"]=b.telephone||"";
-  patient["N° Matricule / Code Bénéficiaire"]=b.code||APP._ctb.code||"";
+  patient[champCode]=b.code||APP._ctb.code||"";
   patient["Date de prise en charge"]=dFR;
   var actes=lignes.map(function(l){ var a={};
     if(AF.presta) a[AF.presta.name]=l.presta;
@@ -5508,11 +5514,11 @@ function _ctbValider(){
   var poste=APP.user.poste;
   var q=getQueue();
   actes.forEach(function(acte){ var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; }); Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
-    q.push({ id:uid(), regime:"CLASSIQUE", poste:poste, data:data }); });
+    q.push({ id:uid(), regime:regime, poste:poste, data:data }); });
   setQueue(q); updateSyncUI();
   if(APP._brouillonEnCours){ _supprimerBrouillon(APP._brouillonEnCours); APP._brouillonEnCours=null; }
   showLoader("Enregistrement du dossier…");
-  var ctx=_ctbCtx("CLASSIQUE", poste, patient, actes, AF.all, dFR);
+  var ctx=_ctbCtx(regime, poste, patient, actes, AF.all, dFR);
   _ctbEnvoyerDossier(ctx).then(function(res){
     hideLoader();
     if(res && res.offline) toast("📁 Enregistré — dossier en attente de réseau");
@@ -5527,7 +5533,7 @@ function _ctbBrouillon(){
   var benefLite=null; if(b){ benefLite={}; Object.keys(b).forEach(function(k){ if(k!=="photo") benefLite[k]=b[k]; }); }
   var id=APP._brouillonEnCours || ("BR_"+uid());
   var list=_getBrouillons().filter(function(x){ return x.id!==id; });
-  list.unshift({ id:id, regime:"CLASSIQUE", contrib:true, cree:Date.now(),
+  list.unshift({ id:id, regime:(APP._ctb&&APP._ctb.regime)||"CLASSIQUE", contrib:true, cree:Date.now(),
                  nom:(b&&b.nom)||"", prenom:(b&&b.prenom)||"",
                  date:date, code:(b&&b.code)||APP._ctb.code||"", benef:benefLite, prestas:prestas });
   _setBrouillons(list); APP._brouillonEnCours=null;
