@@ -77,6 +77,17 @@
 @keyframes ldspin{to{transform:rotate(360deg)}}
 .loader-msg{font-size:14px;color:#1a2b22;font-weight:600}
 .loader-sub{font-size:12px;color:#5b6b63;margin-top:-6px}
+/* Régime contributif — formulaire fluide */
+#contribBody{padding:0 2px}
+.ctb-card{background:#fff;border:1px solid #e7ecf0;border-radius:14px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(16,40,34,.05)}
+.ctb-label{font-size:12px;font-weight:700;color:#5a6b73;letter-spacing:.02em;margin-bottom:8px}
+.ctb-sec{font-size:12px;font-weight:800;color:#5a6b73;letter-spacing:.04em;margin:4px 0 10px}
+.ctb-presta{background:#fff;border:1px solid #e7ecf0;border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(16,40,34,.05)}
+.ctb-parts{background:#f4faf6;border:1px solid #cfe3d6;border-radius:12px;padding:12px 16px;margin-top:10px}
+.ctb-part{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#555;padding:3px 0}
+.ctb-part b{font-size:16px}
+#contribBody input{padding:11px 13px;border:1px solid #d4dde2;border-radius:9px;font-size:15px;background:#fff}
+#contribBody input:focus{outline:2px solid var(--green);border-color:var(--green)}
 </style>
 </head>
 <body>
@@ -341,6 +352,15 @@
   <div class="form-box">
     <div id="dossierBody"></div>
   </div>
+</div>
+
+<!-- ════ RÉGIME CONTRIBUTIF — formulaire fluide (une seule page) ════ -->
+<div class="screen" id="screenContrib">
+  <div class="form-head">
+    <button class="back" onclick="showScreen('screenHome')">←</button>
+    <div class="form-title">💳 Régime contributif</div>
+  </div>
+  <div id="contribBody"></div>
 </div>
 
 <div id="toast"></div>
@@ -3100,8 +3120,8 @@ function doLogout(){
 // ══════════════ ACCUEIL ══════════════
 function buildHomeGrid(){
   var grid=$("regimeGrid"); grid.innerHTML="";
-  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","NDONGO_DARA","BSF","CEC"];
-  var exclus={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1};
+  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF","CEC"];
+  var exclus={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1,NDONGO_DARA:1};
   var cles=ordreICP.filter(function(k){ return APP.regimes[k]; });
   Object.keys(APP.regimes).forEach(function(k){ if(exclus[k]) return; if(cles.indexOf(k)<0) cles.push(k); });
   cles.forEach(function(key){
@@ -3109,7 +3129,7 @@ function buildHomeGrid(){
     var card=document.createElement("div");
     card.className="card"; card.style.borderTopColor=r.couleur||"#1a7a4a";
     card.innerHTML='<div class="ic">'+(r.icone||"📋")+'</div><div class="t">'+r.titre+'</div>';
-    card.onclick=function(){ openForm(key); };
+    card.onclick=(key==="CLASSIQUE") ? function(){ openContributif(); } : function(){ openForm(key); };
     grid.appendChild(card);
   });
 }
@@ -3933,8 +3953,8 @@ window.addEventListener("offline", function(){ $("offlineBanner").style.display=
 function showPDFScreen(){
   var sel=$("pdfRegime");
   sel.innerHTML='<option value="">— choisir —</option>';
-  var exclusICP={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1};
-  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","NDONGO_DARA","BSF","CEC"];
+  var exclusICP={CESARIENNES:1,DIALYSE_PERITONEALE:1,HEMODIALYSE:1,NDONGO_DARA:1};
+  var ordreICP=["ENFANTS_5ANS","CLASSIQUE","SESAME","BSF","CEC"];
   var cles=ordreICP.filter(function(k){ return APP.regimes[k]; });
   Object.keys(APP.regimes).forEach(function(k){ if(exclusICP[k]) return; if(cles.indexOf(k)<0) cles.push(k); });
   cles.forEach(function(k){
@@ -4869,6 +4889,7 @@ function _enregistrerBrouillon(){
 function reprendreBrouillon(id){
   var b=_getBrouillons().filter(function(x){ return x.id===id; })[0]; if(!b) return;
   if(!APP.regimes[b.regime]){ toast("Régime indisponible sur cet appareil."); return; }
+  if(b.contrib){ openContributif(b); return; }   // Régime contributif : formulaire fluide pré-rempli
   openForm(b.regime, false, false, true);   // sansAssistant : formulaire direct, enregistrement normal
   APP._verifStatut="manuel"; APP._verifMotif="";   // brouillon : pas de re-vérification imposée
   APP._brouillonEnCours=b.id;
@@ -5180,6 +5201,287 @@ function _flushDossiers(){
       }).catch(function(){ _flushing=false; _syncLoaderDone(); /* conserver, réessai plus tard */ });
     })(0);
   }).catch(function(){ _flushing=false; });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// RÉGIME CONTRIBUTIF — formulaire fluide (une seule page, non séquentiel)
+// Date → code + éligibilité → (photo + nom + Éligible) → carte → prestations → tickets
+// « Valider le patient » = enregistre + constitue le dossier (aucun récap).
+// ══════════════════════════════════════════════════════════════════════════
+function _ctbEsc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+function _ctbDateFR(s){ var m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s||""); }
+function _ctbActeFields(){
+  var fs=((APP.regimes.CLASSIQUE&&APP.regimes.CLASSIQUE.fields)||[]).filter(function(f){ return f.list==="prestations"||f.qte||f.pu||f.montant; });
+  return { all:fs,
+    presta:fs.filter(function(f){return f.list==="prestations";})[0],
+    qte:fs.filter(function(f){return f.qte;})[0],
+    pu:fs.filter(function(f){return f.pu;})[0],
+    mt:fs.filter(function(f){return f.montant;})[0] };
+}
+
+function openContributif(prefill){
+  APP.currentRegime="CLASSIQUE"; APP._editMode=false; APP._brouillonEnCours=(prefill&&prefill.id)||null;
+  APP._ctb={ date:(prefill&&prefill.date)|| new Date().toISOString().slice(0,10),
+             code:(prefill&&prefill.code)||"", benef:(prefill&&prefill.benef)||null,
+             verifStatut:(prefill&&prefill.benef)?"valide":"" };
+  APP._dossier_tickets=[]; APP._dossier_carteRecto="";
+  var body=$("contribBody"); body.innerHTML="";
+  // 1) Date de prise en charge
+  body.appendChild(_ctbBloc("Date de prise en charge",
+    '<input id="ctbDate" type="date" value="'+APP._ctb.date+'" style="width:100%">'));
+  // 2) Patient
+  var pat=document.createElement("div"); pat.id="ctbPatient"; body.appendChild(pat);
+  // 3) Carte d'assuré (facultatif, photo sur place uniquement)
+  var carte=_blocPiece("carteRecto","🪪 Prendre en photo la carte d'assuré","Photo sur place — facultatif.", true, true);
+  carte.id="ctbCarte"; carte.style.display=(APP._ctb.benef?"":"none"); body.appendChild(carte);
+  // 4) Prestations
+  var sec=document.createElement("div"); sec.id="ctbPrestaSec"; sec.style.display=(APP._ctb.benef?"":"none");
+  sec.innerHTML='<div class="ctb-sec">INFORMATIONS PRESTATION</div><div id="ctbPrestas"></div>'+
+    '<button class="btn secondary" type="button" id="ctbAdd" style="width:100%;margin-top:4px">➕ Ajouter une prestation</button>'+
+    '<div id="ctbParts" class="ctb-parts"></div>';
+  body.appendChild(sec);
+  // 5) Tickets (facultatif, plusieurs possibles)
+  var tk=_blocTickets(); tk.id="ctbTickets"; tk.style.display=(APP._ctb.benef?"":"none"); body.appendChild(tk);
+  // 6) Pied (boutons)
+  var ft=document.createElement("div"); ft.id="ctbFooter"; ft.style.display=(APP._ctb.benef?"":"none"); body.appendChild(ft);
+
+  $("ctbAdd").onclick=function(){ _ctbAddPresta(); };
+  $("ctbDate").addEventListener("change", function(){ APP._ctb.date=$("ctbDate").value; });
+  _ctbRenderPatient();
+  if(APP._ctb.benef){
+    var pres=(prefill&&prefill.prestas&&prefill.prestas.length)? prefill.prestas : [null];
+    pres.forEach(function(p){ _ctbAddPresta(p); });
+    _ctbRecalc(); _ctbFooter();
+  }
+  showScreen("screenContrib");
+}
+
+function _ctbBloc(titre, inner){
+  var d=document.createElement("div"); d.className="ctb-card";
+  d.innerHTML='<div class="ctb-label">'+titre+'</div>'+inner; return d;
+}
+
+function _ctbRenderPatient(){
+  var box=$("ctbPatient"); if(!box) return;
+  var b=APP._ctb.benef;
+  if(b){
+    var nom=((b.prenom||"")+" "+(b.nom||"")).trim().toUpperCase();
+    var photo=b.photo? '<img src="'+b.photo+'" style="width:64px;height:64px;border-radius:10px;object-fit:cover;flex:0 0 auto">'
+                     : '<div style="width:64px;height:64px;border-radius:10px;background:var(--green-light);display:flex;align-items:center;justify-content:center;font-size:26px;flex:0 0 auto">👤</div>';
+    box.innerHTML='<div class="ctb-card"><div class="ctb-label">PATIENT</div>'+
+      '<div style="display:flex;gap:12px;align-items:center">'+photo+
+        '<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:15px;line-height:1.2">'+_ctbEsc(nom||"—")+'</div>'+
+        '<div style="margin-top:5px"><span style="font-size:12px;font-weight:700;color:#1a7a4a;background:#e8f5e9;border-radius:20px;padding:3px 11px">✔ Éligible</span>'+(b._manuel?' <span style="font-size:11px;color:#b9770e">(manuel)</span>':'')+'</div>'+
+        '<a href="javascript:void(0)" onclick="_ctbReset()" style="font-size:12px;color:#1a7a4a;display:inline-block;margin-top:7px;text-decoration:underline">Autre code d\'immatriculation</a></div>'+
+      '</div></div>';
+  } else {
+    box.innerHTML='<div class="ctb-card"><div class="ctb-label">PATIENT</div>'+
+      '<label style="font-size:12px;color:#555">Code d\'immatriculation</label>'+
+      '<input id="ctbCode" type="text" placeholder="EX. V8658Y2605" value="'+_ctbEsc(APP._ctb.code||"")+'" style="width:100%;text-transform:uppercase">'+
+      '<button class="btn" type="button" id="ctbVerif" style="width:100%;margin-top:10px">🛡️ Contrôler l\'éligibilité</button>'+
+      '<div id="ctbVerifMsg" style="font-size:12.5px;margin-top:8px"></div><div id="ctbManuelWrap"></div>'+
+      '</div>';
+    $("ctbVerif").onclick=function(){ _ctbVerifier(); };
+    $("ctbCode").addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); _ctbVerifier(); } });
+  }
+}
+
+function _ctbReset(){ APP._ctb.benef=null; APP._ctb.verifStatut=""; _ctbRenderPatient();
+  ["ctbCarte","ctbPrestaSec","ctbTickets","ctbFooter"].forEach(function(id){ var e=$(id); if(e) e.style.display="none"; }); }
+
+function _ctbRevele(){
+  ["ctbCarte","ctbPrestaSec","ctbTickets","ctbFooter"].forEach(function(id){ var e=$(id); if(e) e.style.display=""; });
+  if(!$("ctbPrestas").children.length) _ctbAddPresta();
+  _ctbRecalc(); _ctbFooter();
+}
+
+function _ctbVerifier(){
+  var code=($("ctbCode").value||"").trim().toUpperCase(); APP._ctb.code=code;
+  var msg=$("ctbVerifMsg");
+  if(!code){ msg.style.color="#c0392b"; msg.textContent="Entrez le code d'immatriculation."; return; }
+  if(!navigator.onLine){ msg.style.color="#b9770e"; msg.textContent="📴 Pas de réseau — saisie manuelle possible."; _ctbManuel(); return; }
+  var btn=$("ctbVerif"); btn.disabled=true; msg.style.color="#555"; msg.textContent="🔎 Vérification en cours…";
+  apiCall({ action:"verif_csu", email:APP.auth.email, pin:APP.auth.pin, regime:"CLASSIQUE", code:code })
+    .then(function(res){ btn.disabled=false;
+      if(res.error){ msg.style.color="#c0392b"; msg.textContent="❌ "+res.error; return; }
+      if(res.indisponible){ msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.erreur||"Service indisponible."); _ctbManuel(); return; }
+      if(!res.trouve){ msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.motif||"Aucun bénéficiaire pour ce code."); _ctbManuel(); return; }
+      if(!res.valide){ msg.style.color="#c0392b"; msg.textContent="⛔ "+(res.motif||"Carte non valide — facturation bloquée."); return; }
+      APP._ctb.benef=res.data||{}; APP._ctb.verifStatut="valide";
+      _ctbRenderPatient(); _ctbRevele();
+    })
+    .catch(function(){ btn.disabled=false; msg.style.color="#b9770e"; msg.textContent="⚠️ Service injoignable."; _ctbManuel(); });
+}
+
+function _ctbManuel(){
+  var man=$("ctbManuelWrap"); if(!man || man._open) return; man._open=true;
+  man.innerHTML='<div style="border-top:1px dashed #ddd;margin-top:10px;padding-top:10px">'+
+    '<div style="font-size:12px;color:#777;margin-bottom:6px">Ou saisir les informations manuellement :</div>'+
+    '<input id="ctbmPrenom" placeholder="Prénom(s)" style="width:100%;margin-bottom:6px">'+
+    '<input id="ctbmNom" placeholder="Nom" style="width:100%;margin-bottom:6px">'+
+    '<input id="ctbmTel" placeholder="N° Téléphone" style="width:100%;margin-bottom:6px">'+
+    '<button class="btn secondary" type="button" id="ctbmOk" style="width:100%">Continuer en manuel</button></div>';
+  $("ctbmOk").onclick=function(){
+    var pr=($("ctbmPrenom").value||"").trim(), no=($("ctbmNom").value||"").trim();
+    if(!pr||!no){ toast("Prénom et nom requis."); return; }
+    APP._ctb.benef={ prenom:pr, nom:no, telephone:($("ctbmTel").value||"").trim(), code:APP._ctb.code, photo:"", _manuel:true };
+    APP._ctb.verifStatut="manuel"; _ctbRenderPatient(); _ctbRevele();
+  };
+}
+
+function _ctbAddPresta(data){
+  var wrap=document.createElement("div"); wrap.className="ctb-presta";
+  wrap.innerHTML=
+    '<label style="font-size:12px;color:#555">Prestation</label>'+
+    '<input class="ctbp-presta" list="dl_prestations" placeholder="Saisir la prestation" value="'+_ctbEsc((data&&data.presta)||"")+'" style="width:100%;margin-bottom:8px">'+
+    '<div style="display:flex;gap:8px">'+
+      '<div style="flex:1"><label style="font-size:12px;color:#555">Quantité</label>'+
+        '<input class="ctbp-qte" type="number" min="1" inputmode="numeric" value="'+_ctbEsc((data&&data.qte)||"1")+'" style="width:100%"></div>'+
+      '<div style="flex:1"><label style="font-size:12px;color:#555">Prix unitaire (F)</label>'+
+        '<input class="ctbp-pu" type="number" min="0" inputmode="numeric" value="'+_ctbEsc((data&&(data.pu||data.pu===0)?data.pu:""))+'" style="width:100%"></div>'+
+    '</div>'+
+    '<button class="ctbp-del" type="button" style="background:none;border:none;color:#c0392b;font-size:12px;margin-top:8px;cursor:pointer;padding:0">✖ Retirer cette prestation</button>';
+  var dl=document.getElementById("dl_prestations");
+  if(!dl){ dl=document.createElement("datalist"); dl.id="dl_prestations"; (APP.referentiels.prestations||[]).forEach(function(v){ var o=document.createElement("option"); o.value=v; dl.appendChild(o); }); document.body.appendChild(dl); }
+  var presta=wrap.querySelector(".ctbp-presta"), qte=wrap.querySelector(".ctbp-qte"), pu=wrap.querySelector(".ctbp-pu");
+  presta.addEventListener("change", function(){ var px=(APP.referentiels.prix||{})[presta.value]; if(px!==undefined && !pu.value){ pu.value=px; } _ctbRefresh(); });
+  qte.addEventListener("input", _ctbRefresh); pu.addEventListener("input", _ctbRefresh);
+  wrap.querySelector(".ctbp-del").onclick=function(){ wrap.remove(); if(!$("ctbPrestas").children.length) _ctbAddPresta(); _ctbRefresh(); };
+  $("ctbPrestas").appendChild(wrap);
+  _ctbFooter();
+}
+
+function _ctbLignes(){
+  var out=[];
+  Array.prototype.forEach.call($("ctbPrestas").children, function(w){
+    var presta=(w.querySelector(".ctbp-presta").value||"").trim();
+    var qte=parseFloat(w.querySelector(".ctbp-qte").value)||0;
+    var pu=parseFloat(w.querySelector(".ctbp-pu").value)||0;
+    if(presta || qte>0 || pu>0) out.push({ presta:presta, qte:qte, pu:pu });
+  });
+  return out;
+}
+function _ctbRecalc(){
+  var lignes=_ctbLignes(), brut=0; lignes.forEach(function(l){ brut+=(l.qte*l.pu)||0; });
+  var taux=_tauxCSUClient("CLASSIQUE"), csu=Math.round(brut*taux), pat=Math.round(brut*(1-taux));
+  var box=$("ctbParts"); if(box) box.innerHTML=
+    '<div class="ctb-part"><span>Part SEN-CSU ('+Math.round(taux*100)+' %)</span><b style="color:#1a7a4a">'+fmtFCFA(csu)+'</b></div>'+
+    '<div class="ctb-part"><span>Part patient ('+Math.round((1-taux)*100)+' %)</span><b>'+fmtFCFA(pat)+'</b></div>';
+}
+function _ctbRefresh(){ _ctbRecalc(); _ctbFooter(); }
+
+function _ctbFooter(){
+  var ft=$("ctbFooter"); if(!ft) return;
+  var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
+  var h="";
+  if(lignes.length){
+    h+='<button class="btn" type="button" onclick="_ctbValider()" style="width:100%;margin-top:4px">✅ Valider le patient</button>'+
+       '<button class="btn secondary" type="button" onclick="_ctbBrouillon()" style="width:100%;margin-top:8px">💾 Enregistrer à compléter</button>';
+  } else {
+    h+='<div style="border:1px solid #f0e0c0;background:#fffaf2;border-radius:10px;padding:10px;font-size:12.5px;color:#9a6a00;margin-top:4px">📋 Le dossier sera enregistré « à compléter » (aucune prestation saisie). Il faudra le compléter depuis « Mes factures » avant d\'envoyer la facture.</div>'+
+       '<button class="btn" type="button" onclick="_ctbBrouillon()" style="width:100%;margin-top:10px">💾 Enregistrer à compléter</button>';
+  }
+  h+='<div id="ctbErr" class="err" style="margin-top:8px;color:#c0392b"></div>';
+  ft.innerHTML=h;
+}
+
+// Construit le contexte dossier (carte + attestation) — repris de _demarrerDossier.
+function _ctbCtx(regime, poste, patient, actes, acteFields, datePrise){
+  var b=APP._ctb.benef||{};
+  var code=_codePatient(regime, patient);
+  var age=""; try{ var _a=_ageDepuis(patient["Date de naissance"]||"", datePrise); if(_a!==null && _a!==undefined && !isNaN(_a)) age=_a; }catch(e){}
+  var cardInfo={ nom:patient["Nom"]||b.nom||"", prenoms:patient["Prénom(s)"]||b.prenom||"", code:code, photo:(b&&b.photo)?b.photo:"" };
+  var sup=[]; function _sup(l,v){ if(v!==undefined && v!==null && String(v).trim()!=="") sup.push([l,String(v).trim()]); }
+  var _tx=(b.taux!=null && b.taux!=="") ? (String(b.taux).indexOf("%")>=0 ? String(b.taux) : (b.taux+"%")) : "";
+  _sup("N° CNI", b.cni||"");
+  _sup("Date de naissance", b.naissanceFR||patient["Date de naissance"]||"");
+  _sup("Sexe", b.sexeLibelle||patient["Sexe (H/F)"]||"");
+  _sup("Lieu de naissance", b.lieuNaissance);
+  _sup("N° Téléphone", b.telephone||patient["N° Téléphone"]||"");
+  _sup("Adresse", b.adresse);
+  _sup("Régime", b.regime);
+  _sup("Taux de prise en charge", _tx);
+  _sup("Période de couverture", (b.dateDebut && b.dateFin) ? (b.dateDebut+"  →  "+b.dateFin) : "");
+  _sup("Jours restants", (b.joursRestants!=null && b.joursRestants!=="") ? (b.joursRestants+" jour(s)") : "");
+  cardInfo.infosSup=sup;
+  var taux=TAUX_CSU_DOSSIER[regime]||1;
+  var fQ=(acteFields||[]).filter(function(f){return f.qte;})[0], fPU=(acteFields||[]).filter(function(f){return f.pu;})[0],
+      fMT=(acteFields||[]).filter(function(f){return f.montant;})[0], fPR=(acteFields||[]).filter(function(f){return f.list==="prestations";})[0];
+  var dateAff=patient["Date de prise en charge"]||datePrise||"";
+  var lignes=(actes||[]).map(function(a){
+    var q=fQ?parseFloat(a[fQ.name]||"0"):0, pu=fPU?parseFloat(a[fPU.name]||"0"):0;
+    var brut=(q&&pu)? q*pu : (fMT?parseFloat(a[fMT.name]||"0"):0); if(isNaN(brut)) brut=0;
+    var net=Math.round(brut*taux), paye=Math.round(brut-net);
+    return { date:dateAff, nature:fPR?(a[fPR.name]||""):"", paye:paye, facture:net };
+  });
+  var attInfo={ assureur:"SEN-CSU", numero:_prochainNumeroAttestation(), prenoms:cardInfo.prenoms, nom:cardInfo.nom, code:code, age:age, sexe:patient["Sexe (H/F)"]||"" };
+  return { id:"DOS_"+uid(), regime:regime, poste:poste, patient:patient, cardInfo:cardInfo, lignes:lignes, attTotaux:null, attInfo:attInfo };
+}
+
+// Génère carte + attestation, joint les photos déjà prises, enregistre/envoie (sans écran récap).
+function _ctbEnvoyerDossier(ctx){
+  var pCarte=REGIMES_CARTE[ctx.regime]? _genCarte(ctx.cardInfo) : Promise.resolve("");
+  var pAtt=_genAttestation(ctx.attInfo, ctx.lignes, ctx.attTotaux);
+  return Promise.all([pCarte, pAtt]).then(function(r){
+    var images={ carte:r[0]||"", attestation:r[1]||"", tickets:(APP._dossier_tickets||[]).slice(),
+                 extrait:"", carteRecto:APP._dossier_carteRecto||"", cniRecto:"", cniVerso:"" };
+    var d={ id:ctx.id, regime:ctx.regime, poste:ctx.poste, patient:ctx.patient, attInfo:ctx.attInfo, images:images, cree:Date.now() };
+    return _idbPut(d).then(function(){
+      if(!navigator.onLine) return { offline:true };
+      return _envoyerDossier(d).then(function(res){ if(res && res.ok && !res.error) _idbDel(d.id); return res; });
+    });
+  });
+}
+
+function _ctbValider(){
+  var err=$("ctbErr"); if(err){ err.style.color="#c0392b"; err.textContent=""; }
+  var b=APP._ctb.benef;
+  if(!b){ if(err) err.textContent="Vérifiez d'abord l'éligibilité."; return; }
+  var date=$("ctbDate").value; if(!date){ if(err) err.textContent="Indiquez la date de prise en charge."; return; }
+  var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
+  if(!lignes.length){ if(err) err.textContent="Ajoutez au moins une prestation complète."; return; }
+  var dFR=_ctbDateFR(date), AF=_ctbActeFields();
+  var patient={};
+  patient["Prénom(s)"]=b.prenom||""; patient["Nom"]=b.nom||"";
+  patient["Date de naissance"]=b.naissanceFR||""; patient["Sexe (H/F)"]=b.sexe||"";
+  patient["N° Téléphone"]=b.telephone||"";
+  patient["N° Matricule / Code Bénéficiaire"]=b.code||APP._ctb.code||"";
+  patient["Date de prise en charge"]=dFR;
+  var actes=lignes.map(function(l){ var a={};
+    if(AF.presta) a[AF.presta.name]=l.presta;
+    if(AF.qte) a[AF.qte.name]=String(l.qte);
+    if(AF.pu) a[AF.pu.name]=String(l.pu);
+    if(AF.mt) a[AF.mt.name]=String(Math.round(l.qte*l.pu));
+    return a;
+  });
+  var poste=APP.user.poste;
+  var q=getQueue();
+  actes.forEach(function(acte){ var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; }); Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
+    q.push({ id:uid(), regime:"CLASSIQUE", poste:poste, data:data }); });
+  setQueue(q); updateSyncUI();
+  if(APP._brouillonEnCours){ _supprimerBrouillon(APP._brouillonEnCours); APP._brouillonEnCours=null; }
+  showLoader("Enregistrement du dossier…");
+  var ctx=_ctbCtx("CLASSIQUE", poste, patient, actes, AF.all, dFR);
+  _ctbEnvoyerDossier(ctx).then(function(res){
+    hideLoader();
+    if(res && res.offline) toast("📁 Enregistré — dossier en attente de réseau");
+    else if(res && res.ok && !res.error){ if(res.warn) toast("⚠️ PDF non assemblé — images sauvées sur Drive",5000); else toast("✅ Patient validé — dossier envoyé"); }
+    else toast("✅ Patient enregistré — dossier conservé localement (réessai auto)");
+    trySync(false); showScreen("screenHome");
+  }).catch(function(){ hideLoader(); toast("✅ Patient enregistré — dossier conservé localement"); trySync(false); showScreen("screenHome"); });
+}
+
+function _ctbBrouillon(){
+  var b=APP._ctb.benef, date=$("ctbDate").value||"", prestas=_ctbLignes();
+  var benefLite=null; if(b){ benefLite={}; Object.keys(b).forEach(function(k){ if(k!=="photo") benefLite[k]=b[k]; }); }
+  var id=APP._brouillonEnCours || ("BR_"+uid());
+  var list=_getBrouillons().filter(function(x){ return x.id!==id; });
+  list.unshift({ id:id, regime:"CLASSIQUE", contrib:true, cree:Date.now(),
+                 nom:(b&&b.nom)||"", prenom:(b&&b.prenom)||"",
+                 date:date, code:(b&&b.code)||APP._ctb.code||"", benef:benefLite, prestas:prestas });
+  _setBrouillons(list); APP._brouillonEnCours=null;
+  toast("📝 Brouillon enregistré — à compléter dans « Mes factures »");
+  showScreen("screenHome");
 }
 
 </script>
