@@ -3141,7 +3141,7 @@ function buildHomeGrid(){
     var card=document.createElement("div");
     card.className="card"; card.style.borderTopColor=r.couleur||"#1a7a4a";
     card.innerHTML='<div class="ic">'+(r.icone||"📋")+'</div><div class="t">'+r.titre+'</div>';
-    card.onclick=(key==="CLASSIQUE"||key==="BSF") ? (function(k){ return function(){ openContributif(k); }; })(key) : function(){ openForm(key); };
+    card.onclick=(key==="CLASSIQUE"||key==="BSF"||key==="SESAME") ? (function(k){ return function(){ openContributif(k); }; })(key) : function(){ openForm(key); };
     grid.appendChild(card);
   });
 }
@@ -5279,6 +5279,9 @@ function openContributif(regimeKey, prefill){
              date:(prefill&&prefill.date)|| new Date().toISOString().slice(0,10),
              code:(prefill&&prefill.code)||"", benef:(prefill&&prefill.benef)||null,
              verifStatut:(prefill&&prefill.benef)?"valide":"" };
+  var sesame=(regimeKey==="SESAME");
+  if(sesame){ APP._cni_recto=""; APP._cni_verso=""; if(!APP._ctb.benef) APP._ctb.benef={ _sesame:true }; }
+  var reveal = sesame || !!APP._ctb.benef;
   var rg=APP.regimes[regimeKey]||{};
   var ti=$("contribTitle"); if(ti) ti.textContent=(rg.icone||"💳")+" "+(rg.titre||"Régime");
   APP._dossier_tickets=[]; APP._dossier_carteRecto="";
@@ -5288,23 +5291,23 @@ function openContributif(regimeKey, prefill){
     '<input id="ctbDate" type="date" value="'+APP._ctb.date+'" style="width:100%">'));
   // 2) Patient
   var pat=document.createElement("div"); pat.id="ctbPatient"; body.appendChild(pat);
-  // 3) Carte d'assuré (facultatif, photo sur place uniquement) — bloc compact
-  var carte=_ctbBlocCarte(); carte.style.display=(APP._ctb.benef?"":"none"); body.appendChild(carte);
+  // 3) Carte d'assuré — seulement pour les régimes à carte (pas Sésame : la CNI est le justificatif)
+  if(!sesame){ var carte=_ctbBlocCarte(); carte.style.display=(reveal?"":"none"); body.appendChild(carte); }
   // 4) Prestations
-  var sec=document.createElement("div"); sec.id="ctbPrestaSec"; sec.style.display=(APP._ctb.benef?"":"none");
+  var sec=document.createElement("div"); sec.id="ctbPrestaSec"; sec.style.display=(reveal?"":"none");
   sec.innerHTML='<div class="ctb-sec">INFORMATIONS PRESTATION</div><div id="ctbPrestas"></div>'+
     '<button class="btn secondary" type="button" id="ctbAdd" style="width:100%;margin-top:4px">➕ Ajouter une prestation</button>'+
     '<div id="ctbParts" class="ctb-parts"></div>';
   body.appendChild(sec);
   // 5) Tickets (facultatif, plusieurs possibles) — bloc compact
-  var tk=_ctbBlocTickets(); tk.style.display=(APP._ctb.benef?"":"none"); body.appendChild(tk);
+  var tk=_ctbBlocTickets(); tk.style.display=(reveal?"":"none"); body.appendChild(tk);
   // 6) Pied (boutons)
-  var ft=document.createElement("div"); ft.id="ctbFooter"; ft.style.display=(APP._ctb.benef?"":"none"); body.appendChild(ft);
+  var ft=document.createElement("div"); ft.id="ctbFooter"; ft.style.display=(reveal?"":"none"); body.appendChild(ft);
 
   $("ctbAdd").onclick=function(){ _ctbAddPresta(); };
   $("ctbDate").addEventListener("change", function(){ APP._ctb.date=$("ctbDate").value; });
   _ctbRenderPatient();
-  if(APP._ctb.benef){
+  if(reveal){
     var pres=(prefill&&prefill.prestas&&prefill.prestas.length)? prefill.prestas : [null];
     pres.forEach(function(p){ _ctbAddPresta(p); });
     _ctbRecalc(); _ctbFooter();
@@ -5317,8 +5320,35 @@ function _ctbBloc(titre, inner){
   d.innerHTML='<div class="ctb-label">'+titre+'</div>'+inner; return d;
 }
 
+function _ctbIsSesame(){ return (APP._ctb&&APP._ctb.regime)==="SESAME"; }
+function _ctbToISO(s){ s=String(s||""); var m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); if(m) return m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2); var m2=s.match(/^\d{4}-\d{2}-\d{2}/); return m2?m2[0]:""; }
+function _ctbF(id,label,val,type){ return '<label style="font-size:12px;color:#555;display:block;margin-top:8px">'+label+'</label><input id="'+id+'" type="'+(type||"text")+'" value="'+_ctbEsc(val||"")+'" style="width:100%">'; }
+
 function _ctbRenderPatient(){
   var box=$("ctbPatient"); if(!box) return;
+  // ── Plan Sésame : identification par scan de la CNI (OCR) + champs éditables ──
+  if(_ctbIsSesame()){
+    var b=APP._ctb.benef||{}, hasCni=!!(APP._cni_recto && APP._cni_verso);
+    box.innerHTML='<div class="ctb-card"><div class="ctb-label">PATIENT <span style="color:#999;font-weight:400">(60 ans et +)</span></div>'+
+      '<div class="ctb-photo-row"><div class="ctb-photo-txt">'+
+        '<div class="ctb-photo-t">🪪 Carte d\'identité (recto + verso)</div>'+
+        (hasCni?'<div class="ctb-photo-ok">✓ CNI jointe</div>':'<div class="ctb-photo-sub">Scanner pour remplir automatiquement</div>')+
+      '</div><div style="display:flex;gap:6px"><button type="button" class="ctb-cam2" id="ctbsImp">🖼️</button><button type="button" class="ctb-cam" id="ctbsScan">📷</button></div></div>'+
+      '<div id="ctbsImpZone" style="display:none;margin-top:8px"></div>'+
+      '<div id="ctbsMsg" style="font-size:12px;margin-top:6px"></div>'+
+      _ctbF("ctbsPrenom","Prénom(s)",b.prenom)+
+      _ctbF("ctbsNom","Nom",b.nom)+
+      '<div style="display:flex;gap:8px">'+
+        '<div style="flex:1"><label style="font-size:12px;color:#555;display:block;margin-top:8px">Date de naissance</label><input id="ctbsNaiss" type="date" value="'+_ctbEsc(_ctbToISO(b.naissance))+'" style="width:100%"></div>'+
+        '<div style="flex:0 0 90px"><label style="font-size:12px;color:#555;display:block;margin-top:8px">Sexe</label><select id="ctbsSexe" style="width:100%;padding:11px 10px;border:1px solid #d4dde2;border-radius:9px"><option value="">—</option><option value="H"'+(b.sexe==="H"?" selected":"")+'>H</option><option value="F"'+(b.sexe==="F"?" selected":"")+'>F</option></select></div>'+
+      '</div>'+
+      _ctbF("ctbsCni","N° CNI",b.cni)+
+      _ctbF("ctbsTel","N° Téléphone",b.telephone,"tel")+
+      '</div>';
+    $("ctbsScan").onclick=function(){ APP._cni_recto=""; APP._cni_verso=""; _ouvrirCameraCNI(function(){ _ctbLireCNI(); }); };
+    $("ctbsImp").onclick=function(){ _ctbImportCNI(); };
+    return;
+  }
   var b=APP._ctb.benef;
   if(b){
     var nom=((b.prenom||"")+" "+(b.nom||"")).trim().toUpperCase();
@@ -5340,6 +5370,39 @@ function _ctbRenderPatient(){
     $("ctbVerif").onclick=function(){ _ctbVerifier(); };
     $("ctbCode").addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); _ctbVerifier(); } });
   }
+}
+
+function _ctbIsoToFR(s){ s=String(s||""); var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : s; }
+
+// Lecture OCR de la CNI (Sésame) → remplit les champs d'identité du formulaire fluide
+function _ctbLireCNI(){
+  var msg=$("ctbsMsg");
+  if(!(APP._cni_recto && APP._cni_verso)){ _ctbRenderPatient(); return; }
+  if(!navigator.onLine){ _ctbRenderPatient(); var m0=$("ctbsMsg"); if(m0){ m0.style.color="#b9770e"; m0.textContent="📴 CNI jointe — OCR indisponible hors ligne. Saisissez l'identité à la main."; } return; }
+  if(msg){ msg.style.color="#555"; msg.textContent="🔎 Lecture de la CNI…"; }
+  apiCall({ action:"ocr_cni", email:APP.auth.email, pin:APP.auth.pin, regime:"SESAME", recto:APP._cni_recto||"", verso:APP._cni_verso||"" })
+    .then(function(res){
+      if(res.error){ _ctbRenderPatient(); var e=$("ctbsMsg"); if(e){ e.style.color="#c0392b"; e.textContent="❌ "+res.error+" — saisissez à la main."; } return; }
+      var d=res.data||{};
+      APP._ctb.benef={ _sesame:true, prenom:d.prenoms||"", nom:d.nom||"", naissance:d.naissance||"", naissanceFR:_ctbIsoToFR(d.naissance), sexe:d.sexe||"", cni:d.cni||"", telephone:"", photo:APP._cni_recto||"" };
+      _ctbRenderPatient();
+      var m2=$("ctbsMsg"); if(m2){ var manque=[]; if(!d.prenoms)manque.push("prénom"); if(!d.nom)manque.push("nom"); if(!d.naissance)manque.push("date de naissance");
+        if(manque.length){ m2.style.color="#b9770e"; m2.textContent="⚠️ Lecture partielle ("+manque.join(", ")+"). Complétez à la main."; } else { m2.style.color="#1a7a4a"; m2.textContent="✅ Identité remplie — vérifiez."; } }
+    })
+    .catch(function(){ _ctbRenderPatient(); var e=$("ctbsMsg"); if(e){ e.style.color="#c0392b"; e.textContent="❌ Lecture impossible — saisissez à la main."; } });
+}
+
+// Import de la CNI (recto + verso) → OCR dès que les deux sont fournis
+function _ctbImportCNI(){
+  var z=$("ctbsImpZone"); if(!z) return;
+  if(z.style.display!=="none"){ z.style.display="none"; return; }
+  z.style.display="block";
+  z.innerHTML='<div style="font-size:12px;color:#777;margin-bottom:4px">Importer la CNI (recto + verso) :</div>'+
+    '<label style="font-size:12px;display:block">Recto (face photo)</label><input id="ctbsImpR" type="file" accept="image/*" style="width:100%;font-size:12px;margin-bottom:6px">'+
+    '<label style="font-size:12px;display:block">Verso (lignes &lt;&lt;&lt;)</label><input id="ctbsImpV" type="file" accept="image/*" style="width:100%;font-size:12px">';
+  function maybe(){ if(APP._cni_recto && APP._cni_verso){ _ctbLireCNI(); } }
+  $("ctbsImpR").addEventListener("change", function(e){ var f=e.target.files&&e.target.files[0]; if(!f) return; _imageVersBase64(f,1600,function(b64){ APP._cni_recto=b64; maybe(); }); });
+  $("ctbsImpV").addEventListener("change", function(e){ var f=e.target.files&&e.target.files[0]; if(!f) return; _imageVersBase64(f,1600,function(b64){ APP._cni_verso=b64; maybe(); }); });
 }
 
 function _ctbReset(){ APP._ctb.benef=null; APP._ctb.verifStatut=""; _ctbRenderPatient();
@@ -5479,8 +5542,10 @@ function _ctbEnvoyerDossier(ctx){
   var pCarte=REGIMES_CARTE[ctx.regime]? _genCarte(ctx.cardInfo) : Promise.resolve("");
   var pAtt=_genAttestation(ctx.attInfo, ctx.lignes, ctx.attTotaux);
   return Promise.all([pCarte, pAtt]).then(function(r){
+    var ses=(ctx.regime==="SESAME");
     var images={ carte:r[0]||"", attestation:r[1]||"", tickets:(APP._dossier_tickets||[]).slice(),
-                 extrait:"", carteRecto:APP._dossier_carteRecto||"", cniRecto:"", cniVerso:"" };
+                 extrait:"", carteRecto:(ses?"":(APP._dossier_carteRecto||"")),
+                 cniRecto:(ses?(APP._cni_recto||""):""), cniVerso:(ses?(APP._cni_verso||""):"") };
     var d={ id:ctx.id, regime:ctx.regime, poste:ctx.poste, patient:ctx.patient, attInfo:ctx.attInfo, images:images, cree:Date.now() };
     return _idbPut(d).then(function(){
       if(!navigator.onLine) return { offline:true };
@@ -5497,13 +5562,27 @@ function _ctbValider(){
   var lignes=_ctbLignes().filter(function(l){ return l.presta && l.qte>0 && l.pu>0; });
   if(!lignes.length){ if(err) err.textContent="Ajoutez au moins une prestation complète."; return; }
   var regime=APP._ctb.regime, dFR=_ctbDateFR(date), AF=_ctbActeFields();
-  var champCode=(CHAMP_CODE_VERIF[regime])||"N° Matricule / Code Bénéficiaire";
   var patient={};
-  patient["Prénom(s)"]=b.prenom||""; patient["Nom"]=b.nom||"";
-  patient["Date de naissance"]=b.naissanceFR||""; patient["Sexe (H/F)"]=b.sexe||"";
-  patient["N° Téléphone"]=b.telephone||"";
-  patient[champCode]=b.code||APP._ctb.code||"";
-  patient["Date de prise en charge"]=dFR;
+  if(_ctbIsSesame()){
+    var pr=($("ctbsPrenom").value||"").trim(), no=($("ctbsNom").value||"").trim();
+    if(!pr||!no){ if(err) err.textContent="Renseignez le prénom et le nom (scannez la CNI ou saisissez à la main)."; return; }
+    var naissISO=$("ctbsNaiss").value||"";
+    if(naissISO){ var age=calculerAge(naissISO, _ctbToISO(dFR)||date); if(age!=null && age<60){ if(err) err.textContent="⛔ Ce patient a "+age+" ans (Plan Sésame réservé aux 60 ans et plus)."; return; } }
+    patient["Prénom(s)"]=pr; patient["Nom"]=no;
+    patient["Date de naissance"]=naissISO? _ctbIsoToFR(naissISO):"";
+    patient["Sexe (H/F)"]=$("ctbsSexe").value||"";
+    patient["N° CNI"]=($("ctbsCni").value||"").trim();
+    patient["N° Téléphone"]=($("ctbsTel").value||"").trim();
+    patient["Date de prise en charge"]=dFR;
+    APP._ctb.benef={ _sesame:true, prenom:pr, nom:no, naissance:naissISO, naissanceFR:patient["Date de naissance"], sexe:patient["Sexe (H/F)"], cni:patient["N° CNI"], telephone:patient["N° Téléphone"], photo:APP._cni_recto||"" };
+  } else {
+    var champCode=(CHAMP_CODE_VERIF[regime])||"N° Matricule / Code Bénéficiaire";
+    patient["Prénom(s)"]=b.prenom||""; patient["Nom"]=b.nom||"";
+    patient["Date de naissance"]=b.naissanceFR||""; patient["Sexe (H/F)"]=b.sexe||"";
+    patient["N° Téléphone"]=b.telephone||"";
+    patient[champCode]=b.code||APP._ctb.code||"";
+    patient["Date de prise en charge"]=dFR;
+  }
   var actes=lignes.map(function(l){ var a={};
     if(AF.presta) a[AF.presta.name]=l.presta;
     if(AF.qte) a[AF.qte.name]=String(l.qte);
@@ -5530,6 +5609,11 @@ function _ctbValider(){
 
 function _ctbBrouillon(){
   var b=APP._ctb.benef, date=$("ctbDate").value||"", prestas=_ctbLignes();
+  if(_ctbIsSesame()){
+    var g=function(id){ var e=$(id); return e? (e.value||"").trim() : ""; };
+    b={ _sesame:true, prenom:g("ctbsPrenom"), nom:g("ctbsNom"), naissance:g("ctbsNaiss"),
+        naissanceFR:_ctbIsoToFR(g("ctbsNaiss")), sexe:g("ctbsSexe"), cni:g("ctbsCni"), telephone:g("ctbsTel") };
+  }
   var benefLite=null; if(b){ benefLite={}; Object.keys(b).forEach(function(k){ if(k!=="photo") benefLite[k]=b[k]; }); }
   var id=APP._brouillonEnCours || ("BR_"+uid());
   var list=_getBrouillons().filter(function(x){ return x.id!==id; });
