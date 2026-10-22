@@ -4735,11 +4735,17 @@ function _mfRenderMois(regime, mois){
     var actif=(m.count>0 || nbBr>0);
     var d=document.createElement("div");
     d.style.cssText="border:1px solid "+(actif?"#cfe3d6":"#eee")+";border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;"+(actif?"background:#f4faf6;cursor:pointer":"opacity:.5");
+    var nbRej=m.rejets||0;
+    function pill(txt,bg){ return ' <span style="font-size:10px;background:'+bg+';color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">'+txt+'</span>'; }
     var badge="";
-    if(m.statut==="Envoyé") badge=' <span style="font-size:10px;background:#1a7a4a;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">🔒 Envoyée</span>';
-    else if(m.statut==="Rejeté") badge=' <span style="font-size:10px;background:#c0392b;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">⛔ Rejetée</span>';
-    if(nbBr) badge+=' <span style="font-size:10px;background:#b9770e;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">📝 '+nbBr+' à compléter</span>';
-    var ligne2 = m.count>0 ? (m.count+" facture(s)") : (nbBr? (nbBr+" facture(s) à compléter") : "Aucune facture");
+    if(m.statut==="Envoyé") badge+=pill("🔒 Envoyée","#1a7a4a");
+    else if(m.statut==="En vérification") badge+=pill("🔎 En vérification","#b9770e");
+    else if(m.statut==="Validé") badge+=pill("✓ Validée","#1a7a4a");
+    else if(m.statut==="Partiel") badge+=pill("⚠️ Partielle","#c0652a");
+    else if(m.statut==="Rejeté") badge+=pill("⛔ Rejetée","#c0392b");
+    if(nbRej) badge+=pill("⚠️ "+nbRej+" à corriger","#c0392b");
+    if(nbBr) badge+=pill("📝 "+nbBr+" à compléter","#b9770e");
+    var ligne2 = m.count>0 ? (m.count+" facture(s)"+(nbRej?" · "+nbRej+" à corriger":"")) : (nbBr? (nbBr+" facture(s) à compléter") : "Aucune facture");
     d.innerHTML='<div><div style="font-weight:700;font-size:15px">'+m.label+badge+'</div>'+
       '<div style="font-size:12px;color:#667;margin-top:2px">'+ligne2+'</div></div>'+
       (actif? '<div style="text-align:right">'+(m.count>0?'<div style="font-weight:800;color:var(--green);font-size:15px">'+_fmtF(m.montant)+' F</div>':'')+'<div style="font-size:11px;color:#999">ouvrir ▸</div></div>' : '');
@@ -4876,8 +4882,11 @@ function _mfRenderBenefs(){
       function ic(txt, titre, bg, fn){ var b=document.createElement("button"); b.type="button"; b.textContent=txt; b.title=titre; b.onclick=fn;
         b.style.cssText="width:34px;height:34px;padding:0;margin:0;border:none;border-radius:8px;font-size:15px;line-height:34px;background:"+bg+";color:#fff"; return b; }
       acts.appendChild(ic("👁️","Consulter","#1a7a4a",(function(dd,bb){ return function(){ consulterBenef(dd,bb); }; })(di,bi)));
-      if(_benefEditable(B)){
+      // Modifier : si le mois est déverrouillé, si le bénéficiaire est rejeté, OU s'il a une prestation rejetée à corriger
+      if(_benefEditable(B) || B.hasRejet===true){
         acts.appendChild(ic("✏️","Modifier","#2471a3",(function(dd,bb){ return function(){ modifierFacture(dd,bb); }; })(di,bi)));
+      }
+      if(_benefEditable(B)){
         acts.appendChild(ic("🗑️","Supprimer","#c0392b",(function(dd,bb){ return function(){ supprimerFacture(dd,bb); }; })(di,bi)));
       }
       c.appendChild(left); c.appendChild(acts); body.appendChild(c);
@@ -4905,6 +4914,14 @@ function consulterBenef(di, bi){
     "Taux de couverture : <b>"+_tauxTexte(mf.regime)+"</b><br>"+
     "Part CSU : <b style='color:var(--green)'>"+_fmtF(totCSU)+" F</b> · Part patient : <b>"+_fmtF(totPat)+" F</b>";
   body.appendChild(h);
+  // Bouton Modifier si correction possible (mois déverrouillé, bénéficiaire rejeté, ou prestation rejetée)
+  if(_benefEditable(B) || B.hasRejet===true){
+    var bMod=document.createElement("button"); bMod.type="button"; bMod.className="btn";
+    bMod.textContent="✏️ Modifier / corriger ce bénéficiaire";
+    bMod.style.cssText="width:100%;margin-bottom:10px;background:#2471a3";
+    bMod.onclick=(function(dd,bb){ return function(){ modifierFacture(dd,bb); }; })(di,bi);
+    body.appendChild(bMod);
+  }
   (B.prestations||[]).forEach(function(P, pi){
     var csu=P.montant||0; var brut=(taux>0?csu/taux:csu); var pat=Math.round(brut-csu);
     var c=document.createElement("div"); c.style.cssText="border:1px solid #e5e5e5;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px";
@@ -5054,7 +5071,7 @@ function _versISO(s){
 
 function modifierFacture(di, bi){
   var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
-  if(!_benefEditable(B)){ toast("🔒 Facture envoyée — verrouillée."); return; }
+  if(!_benefEditable(B) && !B.hasRejet){ toast("🔒 Facture envoyée — verrouillée."); return; }
   if(!navigator.onLine){ toast("📴 Connexion requise pour modifier."); return; }
   var ids=(B.prestations||[]).map(function(p){ return p.id; }).filter(Boolean);
   APP._editFacture={ regime:mf.regime, moisKey:mf.moisKey, label:mf.label, poste:mf.poste, ids:ids };
