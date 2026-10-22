@@ -4688,7 +4688,7 @@ function csuTab(which){
   var tf=$("tabFacturation"), tm=$("tabMesFactures");
   if(tf) tf.className="btn"+(fact?"":" secondary");
   if(tm) tm.className="btn"+(fact?" secondary":"");
-  if(!fact){ if(!APP._mfInit){ mfInit(); APP._mfInit=true; } _mfRenderBrouillons(); mfCharger(); }
+  if(!fact){ if(!APP._mfInit){ mfInit(); APP._mfInit=true; } var mb=$("mfBrouillons"); if(mb) mb.innerHTML=""; mfCharger(); }
 }
 
 function mfInit(){
@@ -4726,18 +4726,23 @@ function _mfRenderMois(regime, mois){
   var box=$("mfMois"); box.innerHTML="";
   var fMois=($("mfMoisFiltre")&&$("mfMoisFiltre").value)||"";   // "MM" ou "" (tous)
   if(fMois) mois=mois.filter(function(m){ return String(m.key||"").slice(5)===fMois; });
-  var aucun=!mois.length || mois.every(function(m){ return m.count===0; });
+  // Nombre de brouillons (à compléter) par mois
+  mois.forEach(function(m){ m._br=_brouillonsDuMois(regime, m.key).length; });
+  var aucun=!mois.length || mois.every(function(m){ return m.count===0 && !m._br; });
   if(aucun){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent=fMois?"Aucune facture pour ce mois.":"Aucune facture enregistrée pour cette année."; box.appendChild(e); }
   mois.forEach(function(m){
-    var actif=m.count>0;
+    var nbBr=m._br||0;
+    var actif=(m.count>0 || nbBr>0);
     var d=document.createElement("div");
     d.style.cssText="border:1px solid "+(actif?"#cfe3d6":"#eee")+";border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;"+(actif?"background:#f4faf6;cursor:pointer":"opacity:.5");
     var badge="";
     if(m.statut==="Envoyé") badge=' <span style="font-size:10px;background:#1a7a4a;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">🔒 Envoyée</span>';
     else if(m.statut==="Rejeté") badge=' <span style="font-size:10px;background:#c0392b;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">⛔ Rejetée</span>';
+    if(nbBr) badge+=' <span style="font-size:10px;background:#b9770e;color:#fff;border-radius:10px;padding:1px 7px;vertical-align:middle">📝 '+nbBr+' à compléter</span>';
+    var ligne2 = m.count>0 ? (m.count+" facture(s)") : (nbBr? (nbBr+" facture(s) à compléter") : "Aucune facture");
     d.innerHTML='<div><div style="font-weight:700;font-size:15px">'+m.label+badge+'</div>'+
-      '<div style="font-size:12px;color:#667;margin-top:2px">'+(actif? (m.count+" facture(s)") : "Aucune facture")+'</div></div>'+
-      (actif? '<div style="text-align:right"><div style="font-weight:800;color:var(--green);font-size:15px">'+_fmtF(m.montant)+' F</div><div style="font-size:11px;color:#999">ouvrir ▸</div></div>' : '');
+      '<div style="font-size:12px;color:#667;margin-top:2px">'+ligne2+'</div></div>'+
+      (actif? '<div style="text-align:right">'+(m.count>0?'<div style="font-weight:800;color:var(--green);font-size:15px">'+_fmtF(m.montant)+' F</div>':'')+'<div style="font-size:11px;color:#999">ouvrir ▸</div></div>' : '');
     if(actif){ d.onclick=function(){ ouvrirMoisFacture(regime, m.key, m.label); }; }
     box.appendChild(d);
   });
@@ -4788,9 +4793,12 @@ function _mfRenderBenefs(){
   head.style.cssText="border:1px solid #cfe3d6;background:#f4faf6;border-radius:10px;padding:10px;margin-bottom:12px";
   head.innerHTML="<div style='font-size:13px;color:#555'><b>"+(mf.total.count||0)+"</b> facture(s) · Total : <b style='color:var(--green)'>"+_fmtF(mf.total.montant||0)+" F</b></div>"+
                  "<div style='font-size:12px;color:#777;margin-top:3px'>Taux de couverture : <b>"+_tauxTexte(mf.regime)+"</b></div>";
-  var bDl=document.createElement("button"); bDl.type="button"; bDl.className="btn"; bDl.textContent="📄 Télécharger la facture";
-  bDl.style.cssText="width:100%;margin-top:10px"; bDl.onclick=function(){ _mfTelechargerFacture(bDl); };
-  head.appendChild(bDl); body.appendChild(head);
+  if((mf.total.count||0)>0){
+    var bDl=document.createElement("button"); bDl.type="button"; bDl.className="btn"; bDl.textContent="📄 Télécharger la facture";
+    bDl.style.cssText="width:100%;margin-top:10px"; bDl.onclick=function(){ _mfTelechargerFacture(bDl); };
+    head.appendChild(bDl);
+  }
+  body.appendChild(head);
 
   // Bandeau statut d'envoi
   if(verrTotal){
@@ -4815,20 +4823,42 @@ function _mfRenderBenefs(){
     br.innerHTML="⛔ <b>Rejetée par le "+dest+" (tout le mois)</b>"+(env.dateRejet?(" le "+env.dateRejet):"")+(env.motif?("<br>Motif : <b>"+env.motif+"</b>"):"")+"<br>Corrigez puis renvoyez.";
     body.appendChild(br);
   }
+  // ── Factures à compléter (brouillons) de ce mois ──
+  var brs=_brouillonsDuMois(mf.regime, mf.moisKey);
+  if(brs.length){
+    var bt=document.createElement("div"); bt.style.cssText="font-weight:800;color:#b9770e;font-size:13px;margin:4px 0 6px;border-bottom:1px solid #f0e0c0;padding-bottom:3px";
+    bt.textContent="📝 À compléter ("+brs.length+")"; body.appendChild(bt);
+    brs.forEach(function(b){
+      var c=document.createElement("div"); c.style.cssText="border:1px solid #f0e0c0;background:#fffaf2;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;gap:8px";
+      var nom=(((b.prenom||"")+" "+(b.nom||"")).trim())||"(sans nom)";
+      var nbP=(b.prestas?b.prestas.length:(b.panier?b.panier.length:0));
+      var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0";
+      left.innerHTML='<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+nom+'</div>'+
+        '<div style="font-size:11px;color:#998;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(b.code?(b.code+" · "):"")+nbP+' prest. · brouillon</div>';
+      var acts=document.createElement("div"); acts.style.cssText="display:flex;gap:4px;flex:0 0 auto";
+      function icb(txt,titre,bg,fn){ var x=document.createElement("button"); x.type="button"; x.textContent=txt; x.title=titre; x.onclick=fn;
+        x.style.cssText="width:auto;min-width:34px;height:34px;padding:0 10px;margin:0;border:none;border-radius:8px;font-size:13px;font-weight:700;background:"+bg+";color:#fff"; return x; }
+      acts.appendChild(icb("✍️ Compléter","Compléter","#b9770e",(function(id){ return function(){ reprendreBrouillon(id); }; })(b.id)));
+      acts.appendChild(icb("🗑️","Supprimer","#c0392b",(function(id){ return function(){ if(confirm("Supprimer ce brouillon ?")){ _supprimerBrouillon(id); _mfRenderBenefs(); } }; })(b.id)));
+      c.appendChild(left); c.appendChild(acts); body.appendChild(c);
+    });
+  }
+
   // Bouton envoyer / renvoyer (si non verrouillé totalement et au moins une facture)
   if(!verrTotal && (mf.dates&&mf.dates.length)){
-    var nbBr=_brouillonsDuMois(mf.regime, mf.moisKey).length;
+    var nbBr=brs.length;
     var renvoi=(rejete||partiel);
     var bEnv=document.createElement("button"); bEnv.type="button"; bEnv.className="btn";
     bEnv.textContent=(renvoi?"📤 Renvoyer la facture au ":"📤 Envoyer la facture au ")+dest;
-    bEnv.style.cssText="width:100%;margin-bottom:"+(nbBr?"4px":"12px")+";background:"+(nbBr?"#9aa":(renvoi?"#c0392b":"#1a7a4a"));
+    bEnv.style.cssText="width:100%;margin:"+(nbBr?"8px 0 4px":"8px 0 12px")+";background:"+(nbBr?"#9aa":(renvoi?"#c0392b":"#1a7a4a"));
     bEnv.onclick=function(){ envoyerFacture(bEnv); };
     body.appendChild(bEnv);
     if(nbBr){ var w=document.createElement("div"); w.style.cssText="font-size:12px;color:#b9770e;margin-bottom:12px";
-      w.textContent="📝 "+nbBr+" brouillon(s) à finaliser avant l'envoi (voir « Mes factures »)."; body.appendChild(w); }
+      w.textContent="📝 "+nbBr+" facture(s) à compléter ci-dessus avant l'envoi."; body.appendChild(w); }
   }
 
-  if(!mf.dates.length){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture pour ce mois."; body.appendChild(e); }
+  if(!mf.dates.length && !brs.length){ var e=document.createElement("div"); e.style.cssText="color:#777;font-size:13px"; e.textContent="Aucune facture pour ce mois."; body.appendChild(e); }
+  if(mf.dates.length){ var sh=document.createElement("div"); sh.style.cssText="font-weight:800;color:var(--green);font-size:13px;margin:10px 0 2px"; sh.textContent="📄 Factures enregistrées"; body.appendChild(sh); }
   mf.dates.forEach(function(D, di){
     var t=document.createElement("div"); t.style.cssText="font-weight:800;color:var(--green);font-size:13px;margin:12px 0 6px;border-bottom:1px solid #eee;padding-bottom:3px";
     t.textContent="📅 "+D.date+"  ("+D.benefs.length+")"; body.appendChild(t);
@@ -4978,15 +5008,17 @@ function _benefEditable(B){ return _mfFullUnlock() || !!(B && B.rejet!==undefine
 // Retirer une prestation : si mois déverrouillé OU cette prestation/ce bénéficiaire est rejeté
 function _prestEditable(B,P){ return _mfFullUnlock() || !!((P && P.rejet!==undefined) || (B && B.rejet!==undefined)); }
 
+// Mois (YYYY-MM) auquel rattacher un brouillon : date de prise en charge si
+// présente (contrib : b.date ; formulaire : fields[...]), sinon le mois de création.
+function _brouillonMois(b){
+  var dp = b.contrib ? (b.date||"") : ((b.fields&&b.fields["Date de prise en charge"])||"");
+  var d = dp ? _versDate(dp) : null;
+  if(!d){ d = new Date(b.cree||Date.now()); }
+  if(!d || isNaN(d)) d = new Date();
+  return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2);
+}
 function _brouillonsDuMois(regime, moisKey){
-  return _getBrouillons().filter(function(b){
-    if(b.regime!==regime) return false;
-    var dp=(b.fields&&b.fields["Date de prise en charge"])||"";
-    if(!dp) return true;                       // brouillon sans date -> considéré bloquant
-    var d=_versDate(dp); if(!d) return true;
-    var mm=d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2);
-    return mm===moisKey;
-  });
+  return _getBrouillons().filter(function(b){ return b.regime===regime && _brouillonMois(b)===moisKey; });
 }
 
 function envoyerFacture(btn){
