@@ -5069,11 +5069,45 @@ function _versISO(s){
   var m2=String(s||"").match(/^\d{4}-\d{2}-\d{2}/); return m2?m2[0]:"";
 }
 
+// Régimes utilisant le formulaire fluide (identique à la facturation)
+function _ctbEstFluide(regime){ return ["CLASSIQUE","BSF","SESAME","ENFANTS_5ANS"].indexOf(regime)>=0; }
+
+// Construit un pré-remplissage (benef + prestations) pour rouvrir le formulaire fluide
+function _ctbPrefillBenef(regime, D, B){
+  var data=B.data||{}, benef;
+  if(regime==="ENFANTS_5ANS"){
+    benef={ _std:true, prenom:B.prenom||"", nom:B.nom||"", naissance:B.naissance||data["Date de naissance"]||"",
+            sexe:B.sexe||data["Sexe (M/F)"]||"", extraitNo:B.code||data["N° Matricule / Extrait naissance"]||"",
+            registre:data["N° dans le registre"]||"", tel:B.tel||data["N° Téléphone"]||"" };
+  } else if(regime==="SESAME"){
+    benef={ _sesame:true, prenom:B.prenom||"", nom:B.nom||"", naissance:B.naissance||data["Date de naissance"]||"",
+            naissanceFR:B.naissance||data["Date de naissance"]||"", sexe:B.sexe||data["Sexe (H/F)"]||"",
+            cni:B.code||data["N° CNI"]||"", telephone:B.tel||data["N° Téléphone"]||"" };
+  } else {
+    benef={ prenom:B.prenom||"", nom:B.nom||"", naissanceFR:B.naissance||data["Date de naissance"]||"",
+            sexe:B.sexe||data["Sexe (H/F)"]||"", telephone:B.tel||data["N° Téléphone"]||"", code:B.code||"", _manuel:true };
+  }
+  var estEnf=(regime==="ENFANTS_5ANS");
+  var prestas=(B.prestations||[]).map(function(P){
+    if(estEnf){ var m=String(P.prestation||"").match(/^(.*?)\s*×\s*(\d+)\s*$/);
+      return { presta:(m?m[1]:(P.prestation||P.service||"")), qte:(m?+m[2]:(P.qte||1)) }; }
+    return { presta:(P.prestation||P.service||""), qte:(P.qte||1), pu:(P.pu||0) };
+  });
+  return { _edition:true, regime:regime, date:_versISO(D.date)||D.date, code:B.code||"", benef:benef, prestas:prestas };
+}
+
 function modifierFacture(di, bi){
   var mf=APP._mf; if(!mf) return; var D=mf.dates[di]; var B=D&&D.benefs[bi]; if(!B) return;
   if(!_benefEditable(B) && !B.hasRejet){ toast("🔒 Facture envoyée — verrouillée."); return; }
   if(!navigator.onLine){ toast("📴 Connexion requise pour modifier."); return; }
   var ids=(B.prestations||[]).map(function(p){ return p.id; }).filter(Boolean);
+  // Formulaire fluide (identique à la facturation) pour les régimes concernés
+  if(_ctbEstFluide(mf.regime)){
+    openContributif(mf.regime, _ctbPrefillBenef(mf.regime, D, B));
+    APP._editFacture={ regime:mf.regime, moisKey:mf.moisKey, label:mf.label, poste:mf.poste, ids:ids };
+    var ti=$("contribTitle"); if(ti) ti.textContent="✏️ Corriger — "+(((B.prenom||"")+" "+(B.nom||"")).trim()||ti.textContent);
+    return;
+  }
   APP._editFacture={ regime:mf.regime, moisKey:mf.moisKey, label:mf.label, poste:mf.poste, ids:ids };
   openForm(mf.regime, false, true);   // edition=true : formulaire seul, pas d'assistant
   _prefillEdition(B);
@@ -5348,6 +5382,7 @@ function _ctbActeFields(){
 function openContributif(regimeKey, prefill){
   regimeKey=regimeKey||"CLASSIQUE";
   APP.currentRegime=regimeKey; APP._editMode=false; APP._brouillonEnCours=(prefill&&prefill.id)||null;
+  if(!(prefill&&prefill._edition)) APP._editFacture=null;   // nouvelle saisie / brouillon : pas en mode édition
   APP._ctb={ regime:regimeKey,
              date:(prefill&&prefill.date)|| new Date().toISOString().slice(0,10),
              code:(prefill&&prefill.code)||"", benef:(prefill&&prefill.benef)||null,
@@ -5638,7 +5673,12 @@ function _ctbRefresh(){ _ctbRecalc(); _ctbFooter(); }
 
 function _ctbFooter(){
   var ft=$("ctbFooter"); if(!ft) return;
-  var h="";
+  var h="", edit=!!APP._editFacture;
+  if(edit){
+    h+='<button class="btn" type="button" onclick="_ctbValider()" style="width:100%;margin-top:4px"'+(_ctbComplet()?'':' disabled')+'>💾 Enregistrer la correction</button>';
+    h+='<div id="ctbErr" class="err" style="margin-top:8px;color:#c0392b"></div>';
+    ft.innerHTML=h; return;
+  }
   if(_ctbComplet()){
     h+='<button class="btn" type="button" onclick="_ctbValider()" style="width:100%;margin-top:4px">✅ Valider le patient</button>'+
        '<button class="btn secondary" type="button" onclick="_ctbBrouillon()" style="width:100%;margin-top:8px">💾 Enregistrer à compléter</button>';
@@ -5762,6 +5802,8 @@ function _ctbValider(){
     actes=lignes.map(function(l){ var a={}; if(AF.presta) a[AF.presta.name]=l.presta; if(AF.qte) a[AF.qte.name]=String(l.qte); if(AF.pu) a[AF.pu.name]=String(l.pu); if(AF.mt) a[AF.mt.name]=String(Math.round(l.qte*l.pu)); return a; });
   }
   var poste=APP.user.poste;
+  // Mode édition (correction d'une facture rejetée) : on remplace les lignes existantes
+  if(APP._editFacture){ _ctbSaveEdit(patient, actes, poste, AF.all); return; }
   var q=getQueue();
   actes.forEach(function(acte){ var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; }); Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
     q.push({ id:uid(), regime:regime, poste:poste, data:data }); });
@@ -5776,6 +5818,33 @@ function _ctbValider(){
     else toast("✅ Patient enregistré — dossier conservé localement (réessai auto)");
     trySync(false); showScreen("screenHome");
   }).catch(function(){ hideLoader(); toast("✅ Patient enregistré — dossier conservé localement"); trySync(false); showScreen("screenHome"); });
+}
+
+// Enregistre une MODIFICATION depuis le formulaire fluide (remplace les lignes + régénère l'attestation)
+function _ctbSaveEdit(patient, actes, poste, acteFields){
+  var ef=APP._editFacture||{}, regime=APP.currentRegime;
+  var setErr=function(t){ var e=$("ctbErr"); if(e){ e.style.color="#c0392b"; e.textContent=t; } };
+  if(!navigator.onLine){ setErr("📴 Connexion requise pour enregistrer la correction."); return; }
+  var entries=actes.map(function(acte){ var data={}; Object.keys(patient).forEach(function(k){ data[k]=patient[k]; }); Object.keys(acte).forEach(function(k){ data[k]=acte[k]; });
+    return { id:uid(), regime:regime, poste:poste, data:data }; });
+  function finir(){ APP._editFacture=null; if(ef.regime) ouvrirMoisFacture(ef.regime, ef.moisKey, ef.label); else showScreen("screenHome"); }
+  showLoader("Enregistrement de la correction…");
+  apiCall({ action:"facture_modifier", email:APP.auth.email, pin:APP.auth.pin,
+            regime:regime, moisKey:ef.moisKey||"", ids:JSON.stringify(ef.ids||[]), entries:JSON.stringify(entries) })
+    .then(function(res){
+      if(res.error){ hideLoader(); setErr("❌ "+res.error); return; }
+      if(REGIMES_DOSSIER[regime]){
+        showLoader("Mise à jour de l'attestation…");
+        var d=_docsAttestation(regime, patient, actes, acteFields, patient["Date de prise en charge"]||"");
+        _genAttestation(d.attInfo, d.lignes, d.attTotaux).then(function(att){
+          return apiCall({ action:"dossier_maj_docs", email:APP.auth.email, pin:APP.auth.pin, regime:regime,
+            poste:poste||APP.user.poste||"", nom:patient["Nom"]||"", prenom:patient["Prénom(s)"]||"",
+            code:d.code||"", date:(patient["Date de prise en charge"]||""), attestation:att });
+        }).then(function(r){ hideLoader(); toast((r&&r.ok&&!r.error)?"✅ Correction + attestation mises à jour":"✅ Correction enregistrée"); finir(); })
+        .catch(function(){ hideLoader(); toast("✅ Correction enregistrée (attestation non mise à jour)"); finir(); });
+      } else { hideLoader(); toast("✅ Correction enregistrée"); finir(); }
+    })
+    .catch(function(){ hideLoader(); setErr("❌ Erreur réseau — correction non enregistrée."); });
 }
 
 function _ctbBrouillon(){
