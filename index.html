@@ -52,6 +52,7 @@
   .card:active { transform:scale(.97); }
   .card .ic { font-size:30px; }
   .card .t { font-size:12px; font-weight:700; margin-top:6px; line-height:1.3; }
+  .card .ctaux { font-size:10px; font-weight:600; margin-top:4px; color:var(--green); background:rgba(26,122,74,.1); border-radius:10px; padding:2px 8px; display:inline-block; }
   .syncbar { background:#fff; border-radius:10px; padding:12px 14px; margin-top:4px;
     display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 4px rgba(0,0,0,.06); font-size:13px; }
   .syncbar.pending { border-left:4px solid var(--orange); }
@@ -3140,7 +3141,8 @@ function buildHomeGrid(){
     var r=APP.regimes[key]; if(!r) return;
     var card=document.createElement("div");
     card.className="card"; card.style.borderTopColor=r.couleur||"#1a7a4a";
-    card.innerHTML='<div class="ic">'+(r.icone||"📋")+'</div><div class="t">'+r.titre+'</div>';
+    var tauxLbl=(key==="ENFANTS_5ANS") ? "Forfait 1 400 F" : ("Taux CSU : "+Math.round(_tauxCSUClient(key)*100)+"%");
+    card.innerHTML='<div class="ic">'+(r.icone||"📋")+'</div><div class="t">'+r.titre+'</div><div class="ctaux">'+tauxLbl+'</div>';
     card.onclick=(key==="CLASSIQUE"||key==="BSF"||key==="SESAME"||key==="ENFANTS_5ANS") ? (function(k){ return function(){ openContributif(k); }; })(key) : function(){ openForm(key); };
     grid.appendChild(card);
   });
@@ -3802,6 +3804,29 @@ function renderPanierCSU(){
   } else { tot.textContent=""; }
 }
 function _tauxCSUClient(regime){ if(regime==="NDONGO_DARA"||regime==="CLASSIQUE") return 0.8; return 1.0; }
+// Regroupe une clé régime dans son groupe de formulaire fluide (clé canonique)
+function _grpRegime(key){
+  if(key==="CLASSIQUE"||key==="NDONGO_DARA") return "CLASSIQUE";
+  if(key==="BSF"||key==="CEC") return "BSF";
+  if(key==="SESAME") return "SESAME";
+  if(key==="ENFANTS_5ANS") return "ENFANTS_5ANS";
+  return key;
+}
+// Déduit le groupe de formulaire à partir du libellé régime renvoyé par scancarte
+function _regimeDepuisLibelle(lib){
+  var s=(lib||"").toString().toLowerCase();
+  if(!s) return "";
+  if(/sésame|sesame/.test(s)) return "SESAME";
+  if(/moins de 5|moins de cinq|enfant/.test(s)) return "ENFANTS_5ANS";
+  if(/bsf|cec|bourse|sécurité familiale|securite familiale|égalité|egalite|chances/.test(s)) return "BSF";
+  if(/classique|contributif|ndongo|dara|élève|eleve/.test(s)) return "CLASSIQUE";
+  return "";
+}
+function _grpNom(grp){
+  var r=APP.regimes&&APP.regimes[grp];
+  if(r&&r.titre) return r.titre;
+  return ({CLASSIQUE:"Régime contributif",BSF:"BSF / CEC",SESAME:"Plan Sésame",ENFANTS_5ANS:"Enfants de moins de 5 ans"})[grp]||grp;
+}
 
 function majPrestationsSelon(service){
   var parService=(APP.referentiels&&APP.referentiels.parService)||{};
@@ -4858,7 +4883,6 @@ function consulterBenef(di, bi){
     if(P.qte) sub.push("Qté "+P.qte); if(P.pu) sub.push("PU "+_fmtF(P.pu));
     if(sub.length) info+='<div style="font-size:11px;color:#667;margin-top:2px">'+sub.join(" · ")+'</div>';
     if(estEnfants){ info+='<div style="font-size:12px;color:#999;margin-top:3px">Inclus au forfait</div>'; }
-    else { info+='<div style="font-size:12px;margin-top:3px"><span style="color:var(--green);font-weight:700">CSU '+_fmtF(csu)+' F</span> · <span style="color:#555">Patient '+_fmtF(pat)+' F</span></div>'; }
     if(P.rejet!==undefined){ info+='<div style="font-size:11px;color:#c0392b;margin-top:2px">⛔ Rejeté'+(P.rejet?(' : '+P.rejet):'')+'</div>'; c.style.borderColor="#e0a0a0"; }
     var left=document.createElement("div"); left.style.cssText="flex:1;min-width:0"; left.innerHTML=info;
     c.appendChild(left);
@@ -5462,6 +5486,17 @@ function _ctbVerifier(){
       if(res.indisponible){ msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.erreur||"Service indisponible."); _ctbManuel(); return; }
       if(!res.trouve){ msg.style.color="#b9770e"; msg.textContent="⚠️ "+(res.motif||"Aucun bénéficiaire pour ce code."); _ctbManuel(); return; }
       if(!res.valide){ msg.style.color="#c0392b"; msg.textContent="⛔ "+(res.motif||"Carte non valide — facturation bloquée."); return; }
+      // Vérifier que le code appartient bien au régime choisi
+      var attendu=_grpRegime(APP._ctb.regime);
+      var bonKey=_regimeDepuisLibelle((res.data&&res.data.regime)||"");
+      if(bonKey && attendu && bonKey!==attendu){
+        var bon=_grpNom(bonKey), actuel=(APP.regimes[APP._ctb.regime]&&APP.regimes[APP._ctb.regime].titre)||APP._ctb.regime;
+        msg.style.color="#c0392b";
+        msg.innerHTML='⛔ Ce code appartient au régime <b>'+bon+'</b>, pas à <b>'+actuel+'</b>.<br>'+
+          '<button class="btn secondary" type="button" id="ctbBascule" style="margin-top:8px;width:100%">↪ Basculer vers '+bon+'</button>';
+        var bb=$("ctbBascule"); if(bb) bb.onclick=function(){ openContributif(bonKey); };
+        return;
+      }
       APP._ctb.benef=res.data||{}; APP._ctb.verifStatut="valide";
       _ctbRenderPatient(); _ctbRevele();
     })
