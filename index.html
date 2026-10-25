@@ -112,7 +112,21 @@
     <h1>Factures SEN-CSU</h1>
     <div class="sub" id="userInfo"></div>
   </div>
-  <div class="badge-sync badge-ok" id="syncBadge">✓</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <button id="notifBell" onclick="ouvrirNotifs()" aria-label="Notifications" style="position:relative;background:rgba(255,255,255,.15);border:none;color:#fff;width:38px;height:38px;border-radius:10px;font-size:18px;cursor:pointer;display:none">🔔<span id="notifCount" style="position:absolute;top:-5px;right:-5px;background:#c0392b;color:#fff;font-size:10px;font-weight:700;min-width:17px;height:17px;line-height:17px;border-radius:9px;padding:0 3px;display:none;box-sizing:border-box"></span></button>
+    <div class="badge-sync badge-ok" id="syncBadge">✓</div>
+  </div>
+</div>
+
+<!-- NOTIFICATIONS (panneau) -->
+<div id="notifPanel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999" onclick="if(event.target===this)fermerNotifs()">
+  <div style="position:absolute;top:0;right:0;bottom:0;width:min(440px,94%);background:#f5f6f7;box-shadow:-4px 0 22px rgba(0,0,0,.22);display:flex;flex-direction:column">
+    <div style="padding:14px 16px;background:var(--green);color:#fff;display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:15px">🔔 Notifications</b>
+      <button onclick="fermerNotifs()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <div id="notifList" style="flex:1;overflow:auto;padding:12px"></div>
+  </div>
 </div>
 
 <!-- LOGIN -->
@@ -3100,7 +3114,46 @@ function applyBootstrap(res){
   $("userInfo").textContent=APP.user.email+" — "+APP.user.role+(APP.user.poste?" ("+APP.user.poste+")":"");
   buildHomeGrid(); updateSyncUI(); showScreen("screenHome"); retourModeChoice(); trySync(false);
   try{ _flushDossiers(); }catch(e){}
+  try{ _chargerNotifs(); }catch(e){}
 }
+
+// ══════════════ NOTIFICATIONS ══════════════
+function _chargerNotifs(auto){
+  if(!APP.user || APP.user.role!=="ICP") return;   // notifications destinées à l'ICP
+  if(!navigator.onLine || !APP.auth) return;
+  apiCall({ action:"notifs", email:APP.auth.email, pin:APP.auth.pin }).then(function(res){
+    if(!res || res.error) return;
+    APP._notifs=res.notifs||[]; _majBadgeNotif(res.nonLus||0);
+    if(auto!==false && (res.nonLus||0)>0) ouvrirNotifs();   // à la connexion, on affiche d'office les non-lues
+  }).catch(function(){});
+}
+function _majBadgeNotif(n){
+  var bell=$("notifBell"), c=$("notifCount"); if(!bell) return;
+  bell.style.display="";
+  if(c){ if(n>0){ c.textContent=(n>99?"99+":String(n)); c.style.display=""; } else c.style.display="none"; }
+}
+function ouvrirNotifs(){
+  var p=$("notifPanel"), list=$("notifList"); if(!p||!list) return;
+  var ns=APP._notifs||[];
+  if(!ns.length){ list.innerHTML='<div style="color:#888;font-size:13px;text-align:center;padding:30px 10px">Aucune notification pour le moment.</div>'; }
+  else {
+    list.innerHTML=ns.map(function(n){
+      var col=(n.statut==="Validé")?"#1a7a4a":(n.statut==="Rejeté")?"#c0392b":"#b9770e";
+      var bg=n.lu?"#ffffff":"#f0f8f3";
+      return '<div style="border:1px solid #e3e6e8;border-left:4px solid '+col+';background:'+bg+';border-radius:9px;padding:11px 13px;margin-bottom:9px">'+
+        '<div style="font-size:13px;color:#2c3338;line-height:1.4">'+(n.lu?'':'<span style="color:#c0392b;font-weight:800">● </span>')+_ctbEsc(n.message)+'</div>'+
+        '<div style="font-size:11px;color:#9aa4ab;margin-top:5px">'+_ctbEsc(n.date||"")+'</div></div>';
+    }).join("");
+  }
+  p.style.display="block";
+  // Marquer les non-lues comme lues
+  var unread=ns.filter(function(n){return !n.lu;}).map(function(n){return n.id;});
+  if(unread.length && navigator.onLine && APP.auth){
+    apiCall({ action:"notifs_lire", email:APP.auth.email, pin:APP.auth.pin, ids:JSON.stringify(unread) })
+      .then(function(){ ns.forEach(function(n){ n.lu=true; }); _majBadgeNotif(0); }).catch(function(){});
+  }
+}
+function fermerNotifs(){ var p=$("notifPanel"); if(p) p.style.display="none"; }
 
 function showMdpScreen(){
   $("mdpAncien").value=""; $("mdpNouveau").value=""; $("mdpConfirm").value=""; $("mdpErr").textContent="";
@@ -3126,7 +3179,8 @@ function changerMotDePasse(){
 function doLogout(){
   var q=getQueue();
   if(q.length>0 && !confirm(q.length+" dossier(s) non synchronisé(s). Se déconnecter quand même ?")) return;
-  localStorage.removeItem(LS_AUTH); APP.auth=null; APP.user=null;
+  localStorage.removeItem(LS_AUTH); APP.auth=null; APP.user=null; APP._notifs=[];
+  var nb=$("notifBell"); if(nb) nb.style.display="none"; fermerNotifs();
   $("topbar").style.display="none"; showScreen("screenLogin");
 }
 
